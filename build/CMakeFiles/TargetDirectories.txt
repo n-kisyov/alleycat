@@ -1,4 +1,0 @@
-C:/projects/alleycat/build/CMakeFiles/alleycat.dir
-C:/projects/alleycat/build/CMakeFiles/INSTALL.dir
-C:/projects/alleycat/build/CMakeFiles/ALL_BUILD.dir
-C:/projects/alleycat/build/CMakeFiles/ZERO_CHECK.dir

@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"C:/projects/alleycat/build/_deps/sdl2-subbuild/cmake_install.cmake"
-	],
-	"Parallel" : false
-}
