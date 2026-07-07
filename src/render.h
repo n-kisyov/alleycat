@@ -22,9 +22,8 @@
 #define PAL_WHITE    15
 
 extern const uint32_t cga_colors[16];
-extern SDL_Surface *screen_surface;
 
-void render_init(void);
+void render_init(int w, int h);
 void render_present(void);
 void render_fill(uint8_t color_index);
 void render_fill_rect(int x, int y, int w, int h, uint8_t color_index);
