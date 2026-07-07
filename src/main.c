@@ -9,12 +9,12 @@
 
 #ifdef _WIN32
 #include <windows.h>
-int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmdLine, int nCmdShow)
-#else
-int main(int argc, char **argv)
 #endif
+
+int main(int argc, char **argv)
 {
-	(void)hInst; (void)hPrev; (void)lpCmdLine; (void)nCmdShow;
+	(void)argc;
+	(void)argv;
 
 	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER) < 0) {
 		fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
@@ -23,30 +23,33 @@ int main(int argc, char **argv)
 
 	g_state.window = SDL_CreateWindow("Alley Cat",
 		SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-		SCREEN_W * SCALE, SCREEN_H * SCALE,
-		SDL_WINDOW_SHOWN);
+		SCREEN_W * 3, SCREEN_H * 3,
+		SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN);
+
 	if (!g_state.window) {
-		fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
+		g_state.window = SDL_CreateWindow("Alley Cat",
+			SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+			SCREEN_W * 3, SCREEN_H * 3,
+			SDL_WINDOW_SHOWN);
+	}
+
+	if (!g_state.window) {
+		fprintf(stderr, "Window creation failed: %s\n", SDL_GetError());
 		SDL_Quit();
 		return 1;
 	}
 
-	g_state.renderer = SDL_CreateRenderer(g_state.window, -1,
-		SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-	if (!g_state.renderer) {
-		fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError());
+	screen_surface = SDL_GetWindowSurface(g_state.window);
+	if (!screen_surface) {
+		fprintf(stderr, "GetWindowSurface failed: %s\n", SDL_GetError());
 		SDL_DestroyWindow(g_state.window);
 		SDL_Quit();
 		return 1;
 	}
 
-	SDL_RenderSetLogicalSize(g_state.renderer, SCREEN_W, SCREEN_H);
-	SDL_SetRenderDrawColor(g_state.renderer, 0, 0, 0, 255);
-
-	render_init(g_state.renderer);
+	render_init();
 	input_init();
 	sound_init();
-
 	game_init();
 
 	scene_push(title_create());
@@ -64,10 +67,12 @@ int main(int argc, char **argv)
 				if (event.key.keysym.sym == SDLK_ESCAPE)
 					g_state.running = 0;
 				if (event.key.keysym.sym == SDLK_RETURN &&
-				    (SDL_GetModState() & KMOD_ALT))
+				    (SDL_GetModState() & KMOD_ALT)) {
+					Uint32 flags = SDL_GetWindowFlags(g_state.window);
 					SDL_SetWindowFullscreen(g_state.window,
-						SDL_GetWindowFlags(g_state.window) & SDL_WINDOW_FULLSCREEN ?
-						0 : SDL_WINDOW_FULLSCREEN);
+						(flags & SDL_WINDOW_FULLSCREEN) ? 0 : SDL_WINDOW_FULLSCREEN);
+					screen_surface = SDL_GetWindowSurface(g_state.window);
+				}
 				break;
 			case SDL_KEYUP:
 				scene_keyup(event.key.keysym.sym);
@@ -84,13 +89,9 @@ int main(int argc, char **argv)
 
 		input_update();
 		scene_update(dt);
-
-		render_begin();
-		SDL_SetRenderDrawColor(g_state.renderer, 0, 0, 0, 255);
-		SDL_RenderClear(g_state.renderer);
 		scene_render();
-		render_end();
-		SDL_RenderPresent(g_state.renderer);
+
+		render_present();
 
 		sound_update();
 	}
@@ -98,10 +99,19 @@ int main(int argc, char **argv)
 	while (scene_current()) scene_pop();
 
 	sound_close();
-	if (g_state.framebuffer) SDL_DestroyTexture(g_state.framebuffer);
-	SDL_DestroyRenderer(g_state.renderer);
 	SDL_DestroyWindow(g_state.window);
 	SDL_Quit();
 
 	return 0;
 }
+
+#ifdef _WIN32
+int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmdLine, int nCmdShow)
+{
+	(void)hInst;
+	(void)hPrev;
+	(void)lpCmdLine;
+	(void)nCmdShow;
+	return main(0, NULL);
+}
+#endif

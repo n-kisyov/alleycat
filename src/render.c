@@ -12,94 +12,75 @@ const uint32_t cga_colors[16] = {
 };
 
 static const int cga_pal_1[4] = { 0, 11, 13, 15 };
-static SDL_Renderer *sdl_renderer;
 
-void render_init(SDL_Renderer *r)
+SDL_Surface *screen_surface = NULL;
+
+static SDL_Surface *back_surface = NULL;
+
+void render_init(void)
 {
-	sdl_renderer = r;
+	back_surface = SDL_CreateRGBSurface(0, SCREEN_W, SCREEN_H, 32,
+		0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000);
 }
 
-void render_begin(void)
+void render_present(void)
 {
-	uint32_t *pixels = malloc(SCREEN_W * SCREEN_H * sizeof(uint32_t));
-	memset(pixels, 0, SCREEN_W * SCREEN_H * sizeof(uint32_t));
-	g_state.pixels = pixels;
+	if (!back_surface || !screen_surface) return;
+	SDL_BlitScaled(back_surface, NULL, screen_surface, NULL);
+	SDL_UpdateWindowSurface(g_state.window);
 }
 
-void render_end(void)
+static inline uint32_t *pixel_ptr(int x, int y)
 {
-	if (!g_state.pixels || !g_state.renderer) {
-		free(g_state.pixels);
-		g_state.pixels = NULL;
-		return;
-	}
-
-	if (!g_state.framebuffer) {
-		g_state.framebuffer = SDL_CreateTexture(g_state.renderer,
-			SDL_PIXELFORMAT_ARGB8888,
-			SDL_TEXTUREACCESS_STREAMING,
-			SCREEN_W, SCREEN_H);
-		if (!g_state.framebuffer) {
-			free(g_state.pixels);
-			g_state.pixels = NULL;
-			return;
-		}
-	}
-
-	void *tex_pixels;
-	int tex_pitch;
-	if (SDL_LockTexture(g_state.framebuffer, NULL, &tex_pixels, &tex_pitch) == 0) {
-		uint32_t *src = g_state.pixels;
-		uint8_t *dst = (uint8_t *)tex_pixels;
-		for (int y = 0; y < SCREEN_H; y++) {
-			memcpy(dst, src, SCREEN_W * 4);
-			src += SCREEN_W;
-			dst += tex_pitch;
-		}
-		SDL_UnlockTexture(g_state.framebuffer);
-	}
-
-	SDL_RenderCopy(sdl_renderer, g_state.framebuffer, NULL, NULL);
-
-	free(g_state.pixels);
-	g_state.pixels = NULL;
+	if (x < 0 || x >= SCREEN_W || y < 0 || y >= SCREEN_H) return NULL;
+	return (uint32_t *)((uint8_t *)back_surface->pixels + y * back_surface->pitch) + x;
 }
 
 void render_fill(uint8_t ci)
 {
-	if (!g_state.pixels) return;
+	if (!back_surface) return;
 	uint32_t c = cga_colors[ci & 15];
-	uint32_t *p = g_state.pixels;
-	int n = SCREEN_W * SCREEN_H;
-	while (n--) *p++ = c;
+	int pitch_px = back_surface->pitch / 4;
+	uint32_t *pixels = (uint32_t *)back_surface->pixels;
+	for (int row = 0; row < SCREEN_H; row++) {
+		for (int col = 0; col < SCREEN_W; col++) {
+			pixels[row * pitch_px + col] = c;
+		}
+	}
 }
 
 void render_fill_rect(int x, int y, int w, int h, uint8_t ci)
 {
-	if (!g_state.pixels) return;
+	if (!back_surface) return;
 	if (x < 0) { w += x; x = 0; }
 	if (y < 0) { h += y; y = 0; }
 	if (x + w > SCREEN_W) w = SCREEN_W - x;
 	if (y + h > SCREEN_H) h = SCREEN_H - y;
 	if (w <= 0 || h <= 0) return;
 	uint32_t c = cga_colors[ci & 15];
-	for (int row = 0; row < h; row++) {
-		uint32_t *p = g_state.pixels + (y + row) * SCREEN_W + x;
-		for (int col = 0; col < w; col++) p[col] = c;
+	int pitch_px = back_surface->pitch / 4;
+	uint32_t *pixels = (uint32_t *)back_surface->pixels;
+	for (int row = y; row < y + h; row++) {
+		for (int col = x; col < x + w; col++) {
+			pixels[row * pitch_px + col] = c;
+		}
 	}
 }
 
 void render_sprite(const uint8_t *data, int x, int y, int w, int h)
 {
-	if (!g_state.pixels || !data) return;
+	if (!back_surface || !data) return;
 	int bytes_per_row = (w + 3) / 4;
+	int pitch_px = back_surface->pitch / 4;
+	uint32_t *pixels = (uint32_t *)back_surface->pixels;
+
 	for (int row = 0; row < h; row++) {
 		int draw_y = y + row;
 		if (draw_y < 0 || draw_y >= SCREEN_H) {
 			data += bytes_per_row;
 			continue;
 		}
-		uint32_t *row_start = g_state.pixels + draw_y * SCREEN_W;
+		uint32_t *row_start = pixels + draw_y * pitch_px;
 		int drawn = 0;
 		for (int b = 0; b < bytes_per_row; b++) {
 			uint8_t byte = *data++;
@@ -109,8 +90,7 @@ void render_sprite(const uint8_t *data, int x, int y, int w, int h)
 				int draw_x = x + drawn + p;
 				if (draw_x < 0 || draw_x >= SCREEN_W) continue;
 				uint8_t pix = (byte >> (6 - p * 2)) & 0x3;
-				uint8_t ci = (uint8_t)cga_pal_1[pix & 3];
-				row_start[draw_x] = cga_colors[ci];
+				row_start[draw_x] = cga_colors[cga_pal_1[pix & 3]];
 			}
 			drawn += to_draw;
 		}
@@ -120,15 +100,18 @@ void render_sprite(const uint8_t *data, int x, int y, int w, int h)
 void render_sprite_clipped(const uint8_t *data, int x, int y, int w, int h,
                            int clip_x, int clip_y, int clip_w, int clip_h)
 {
-	if (!g_state.pixels || !data) return;
+	if (!back_surface || !data) return;
 	int bytes_per_row = (w + 3) / 4;
+	int pitch_px = back_surface->pitch / 4;
+	uint32_t *pixels = (uint32_t *)back_surface->pixels;
+
 	for (int row = 0; row < h; row++) {
 		int draw_y = y + row;
 		if (draw_y < clip_y || draw_y >= clip_y + clip_h) {
 			data += bytes_per_row;
 			continue;
 		}
-		uint32_t *row_start = g_state.pixels + draw_y * SCREEN_W;
+		uint32_t *row_start = pixels + draw_y * pitch_px;
 		int drawn = 0;
 		for (int b = 0; b < bytes_per_row; b++) {
 			uint8_t byte = *data++;
@@ -138,8 +121,7 @@ void render_sprite_clipped(const uint8_t *data, int x, int y, int w, int h,
 				int draw_x = x + drawn + p;
 				if (draw_x < clip_x || draw_x >= clip_x + clip_w) continue;
 				uint8_t pix = (byte >> (6 - p * 2)) & 0x3;
-				uint8_t ci = (uint8_t)cga_pal_1[pix & 3];
-				row_start[draw_x] = cga_colors[ci];
+				row_start[draw_x] = cga_colors[cga_pal_1[pix & 3]];
 			}
 			drawn += to_draw;
 		}
@@ -159,7 +141,6 @@ void render_char(char c, int x, int y)
 		case '!': render_sprite(sprite_punctuation[0], x, y, 8, 8); break;
 		case '-': render_sprite(sprite_punctuation[1], x, y, 8, 8); break;
 		case '.': render_sprite(sprite_punctuation[2], x, y, 8, 8); break;
-		case ' ': break;
 		}
 	}
 }
@@ -180,25 +161,28 @@ void render_number(int num, int x, int y, int digits)
 {
 	char buf[16];
 	int i;
+	buf[digits] = '\0';
 	for (i = digits - 1; i >= 0; i--) {
 		buf[i] = '0' + (num % 10);
 		num /= 10;
 	}
-	buf[digits] = '\0';
 	render_text(buf, x, y);
 }
 
 void render_line(int x1, int y1, int x2, int y2, uint8_t color)
 {
-	if (!g_state.pixels) return;
+	if (!back_surface) return;
 	uint32_t c = cga_colors[color & 15];
 	int dx = abs(x2 - x1), sx = x1 < x2 ? 1 : -1;
 	int dy = -abs(y2 - y1), sy = y1 < y2 ? 1 : -1;
 	int err = dx + dy;
 
+	int pitch_px = back_surface->pitch / 4;
+	uint32_t *pixels = (uint32_t *)back_surface->pixels;
+
 	while (1) {
 		if (x1 >= 0 && x1 < SCREEN_W && y1 >= 0 && y1 < SCREEN_H)
-			g_state.pixels[y1 * SCREEN_W + x1] = c;
+			pixels[y1 * pitch_px + x1] = c;
 		if (x1 == x2 && y1 == y2) break;
 		int e2 = 2 * err;
 		if (e2 >= dy) { err += dy; x1 += sx; }

@@ -6,7 +6,6 @@
 
 #define SCREEN_W 320
 #define SCREEN_H 200
-#define SCALE 3
 
 #define ROOM_FISHBOWL 0
 #define ROOM_KENNEL   1
@@ -18,9 +17,6 @@
 
 struct game_state {
 	SDL_Window   *window;
-	SDL_Renderer *renderer;
-	SDL_Texture  *framebuffer;
-	uint32_t     *pixels;
 	int           running;
 	int           score;
 	int           lives;
