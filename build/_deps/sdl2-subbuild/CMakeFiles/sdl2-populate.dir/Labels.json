@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "C:/projects/alleycat/build/_deps/sdl2-subbuild/CMakeFiles/sdl2-populate"
+		},
+		{
+			"file" : "C:/projects/alleycat/build/_deps/sdl2-subbuild/CMakeFiles/4dc7f338f589aa1596e7b7dbe985acc2/sdl2-populate.rule"
+		},
+		{
+			"file" : "C:/projects/alleycat/build/_deps/sdl2-subbuild/CMakeFiles/a760131ee2ad798e3d62053f91c10a04/sdl2-populate-complete.rule"
+		},
+		{
+			"file" : "C:/projects/alleycat/build/_deps/sdl2-subbuild/CMakeFiles/6fc53662a963a2e8aa5014316db34b2c/sdl2-populate-build.rule"
+		},
+		{
+			"file" : "C:/projects/alleycat/build/_deps/sdl2-subbuild/CMakeFiles/6fc53662a963a2e8aa5014316db34b2c/sdl2-populate-configure.rule"
+		},
+		{
+			"file" : "C:/projects/alleycat/build/_deps/sdl2-subbuild/CMakeFiles/6fc53662a963a2e8aa5014316db34b2c/sdl2-populate-download.rule"
+		},
+		{
+			"file" : "C:/projects/alleycat/build/_deps/sdl2-subbuild/CMakeFiles/6fc53662a963a2e8aa5014316db34b2c/sdl2-populate-install.rule"
+		},
+		{
+			"file" : "C:/projects/alleycat/build/_deps/sdl2-subbuild/CMakeFiles/6fc53662a963a2e8aa5014316db34b2c/sdl2-populate-mkdir.rule"
+		},
+		{
+			"file" : "C:/projects/alleycat/build/_deps/sdl2-subbuild/CMakeFiles/6fc53662a963a2e8aa5014316db34b2c/sdl2-populate-patch.rule"
+		},
+		{
+			"file" : "C:/projects/alleycat/build/_deps/sdl2-subbuild/CMakeFiles/6fc53662a963a2e8aa5014316db34b2c/sdl2-populate-test.rule"
+		},
+		{
+			"file" : "C:/projects/alleycat/build/_deps/sdl2-subbuild/CMakeFiles/6fc53662a963a2e8aa5014316db34b2c/sdl2-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"sdl2-populate"
+		],
+		"name" : "sdl2-populate"
+	}
+}

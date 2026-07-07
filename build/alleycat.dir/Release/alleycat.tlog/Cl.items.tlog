@@ -1,0 +1,16 @@
+C:\projects\alleycat\src\main.c;C:\projects\alleycat\build\alleycat.dir\Release\main.obj
+C:\projects\alleycat\src\game.c;C:\projects\alleycat\build\alleycat.dir\Release\game.obj
+C:\projects\alleycat\src\sprites.c;C:\projects\alleycat\build\alleycat.dir\Release\sprites.obj
+C:\projects\alleycat\src\render.c;C:\projects\alleycat\build\alleycat.dir\Release\render.obj
+C:\projects\alleycat\src\player.c;C:\projects\alleycat\build\alleycat.dir\Release\player.obj
+C:\projects\alleycat\src\input.c;C:\projects\alleycat\build\alleycat.dir\Release\input.obj
+C:\projects\alleycat\src\sound.c;C:\projects\alleycat\build\alleycat.dir\Release\sound.obj
+C:\projects\alleycat\src\scene.c;C:\projects\alleycat\build\alleycat.dir\Release\scene.obj
+C:\projects\alleycat\src\scenes\title.c;C:\projects\alleycat\build\alleycat.dir\Release\title.obj
+C:\projects\alleycat\src\scenes\alley.c;C:\projects\alleycat\build\alleycat.dir\Release\alley.obj
+C:\projects\alleycat\src\scenes\fishbowl.c;C:\projects\alleycat\build\alleycat.dir\Release\fishbowl.obj
+C:\projects\alleycat\src\scenes\kennel.c;C:\projects\alleycat\build\alleycat.dir\Release\kennel.obj
+C:\projects\alleycat\src\scenes\birdcage.c;C:\projects\alleycat\build\alleycat.dir\Release\birdcage.obj
+C:\projects\alleycat\src\scenes\cheese.c;C:\projects\alleycat\build\alleycat.dir\Release\cheese.obj
+C:\projects\alleycat\src\scenes\love.c;C:\projects\alleycat\build\alleycat.dir\Release\love.obj
+C:\projects\alleycat\src\scenes\milk.c;C:\projects\alleycat\build\alleycat.dir\Release\milk.obj
