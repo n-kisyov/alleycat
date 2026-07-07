@@ -2,7 +2,7 @@
 #include "sprites.h"
 #include "game.h"
 #include <string.h>
-#include <stdio.h>
+#include <stdlib.h>
 
 const uint32_t cga_colors[16] = {
 	0xFF000000, 0xFF0000AA, 0xFF00AA00, 0xFF00AAAA,
@@ -11,9 +11,7 @@ const uint32_t cga_colors[16] = {
 	0xFFFF5555, 0xFFFF55FF, 0xFFFFFF55, 0xFFFFFFFF
 };
 
-static const int cga_pal_0[4] = { 0, 10, 12, 14 };
 static const int cga_pal_1[4] = { 0, 11, 13, 15 };
-
 static SDL_Renderer *sdl_renderer;
 
 void render_init(SDL_Renderer *r)
@@ -23,28 +21,53 @@ void render_init(SDL_Renderer *r)
 
 void render_begin(void)
 {
-	g_state.pixels = malloc(SCREEN_W * SCREEN_H * sizeof(uint32_t));
+	uint32_t *pixels = malloc(SCREEN_W * SCREEN_H * sizeof(uint32_t));
+	memset(pixels, 0, SCREEN_W * SCREEN_H * sizeof(uint32_t));
+	g_state.pixels = pixels;
 }
 
 void render_end(void)
 {
-	if (!g_state.pixels) return;
-	SDL_Texture *fb = g_state.framebuffer;
-	if (!fb) {
-		fb = SDL_CreateTexture(sdl_renderer,
+	if (!g_state.pixels || !g_state.renderer) {
+		free(g_state.pixels);
+		g_state.pixels = NULL;
+		return;
+	}
+
+	if (!g_state.framebuffer) {
+		g_state.framebuffer = SDL_CreateTexture(g_state.renderer,
 			SDL_PIXELFORMAT_ARGB8888,
 			SDL_TEXTUREACCESS_STREAMING,
 			SCREEN_W, SCREEN_H);
-		g_state.framebuffer = fb;
+		if (!g_state.framebuffer) {
+			free(g_state.pixels);
+			g_state.pixels = NULL;
+			return;
+		}
 	}
-	SDL_UpdateTexture(fb, NULL, g_state.pixels, SCREEN_W * 4);
-	SDL_RenderCopy(sdl_renderer, fb, NULL, NULL);
+
+	void *tex_pixels;
+	int tex_pitch;
+	if (SDL_LockTexture(g_state.framebuffer, NULL, &tex_pixels, &tex_pitch) == 0) {
+		uint32_t *src = g_state.pixels;
+		uint8_t *dst = (uint8_t *)tex_pixels;
+		for (int y = 0; y < SCREEN_H; y++) {
+			memcpy(dst, src, SCREEN_W * 4);
+			src += SCREEN_W;
+			dst += tex_pitch;
+		}
+		SDL_UnlockTexture(g_state.framebuffer);
+	}
+
+	SDL_RenderCopy(sdl_renderer, g_state.framebuffer, NULL, NULL);
+
 	free(g_state.pixels);
 	g_state.pixels = NULL;
 }
 
 void render_fill(uint8_t ci)
 {
+	if (!g_state.pixels) return;
 	uint32_t c = cga_colors[ci & 15];
 	uint32_t *p = g_state.pixels;
 	int n = SCREEN_W * SCREEN_H;
@@ -53,6 +76,7 @@ void render_fill(uint8_t ci)
 
 void render_fill_rect(int x, int y, int w, int h, uint8_t ci)
 {
+	if (!g_state.pixels) return;
 	if (x < 0) { w += x; x = 0; }
 	if (y < 0) { h += y; y = 0; }
 	if (x + w > SCREEN_W) w = SCREEN_W - x;
@@ -67,10 +91,15 @@ void render_fill_rect(int x, int y, int w, int h, uint8_t ci)
 
 void render_sprite(const uint8_t *data, int x, int y, int w, int h)
 {
+	if (!g_state.pixels || !data) return;
 	int bytes_per_row = (w + 3) / 4;
 	for (int row = 0; row < h; row++) {
 		int draw_y = y + row;
-		if (draw_y < 0 || draw_y >= SCREEN_H) { data += bytes_per_row; continue; }
+		if (draw_y < 0 || draw_y >= SCREEN_H) {
+			data += bytes_per_row;
+			continue;
+		}
+		uint32_t *row_start = g_state.pixels + draw_y * SCREEN_W;
 		int drawn = 0;
 		for (int b = 0; b < bytes_per_row; b++) {
 			uint8_t byte = *data++;
@@ -80,8 +109,8 @@ void render_sprite(const uint8_t *data, int x, int y, int w, int h)
 				int draw_x = x + drawn + p;
 				if (draw_x < 0 || draw_x >= SCREEN_W) continue;
 				uint8_t pix = (byte >> (6 - p * 2)) & 0x3;
-				uint8_t ci = cga_pal_1[pix & 3];
-				g_state.pixels[draw_y * SCREEN_W + draw_x] = cga_colors[ci];
+				uint8_t ci = (uint8_t)cga_pal_1[pix & 3];
+				row_start[draw_x] = cga_colors[ci];
 			}
 			drawn += to_draw;
 		}
@@ -91,10 +120,15 @@ void render_sprite(const uint8_t *data, int x, int y, int w, int h)
 void render_sprite_clipped(const uint8_t *data, int x, int y, int w, int h,
                            int clip_x, int clip_y, int clip_w, int clip_h)
 {
+	if (!g_state.pixels || !data) return;
 	int bytes_per_row = (w + 3) / 4;
 	for (int row = 0; row < h; row++) {
 		int draw_y = y + row;
-		if (draw_y < clip_y || draw_y >= clip_y + clip_h) { data += bytes_per_row; continue; }
+		if (draw_y < clip_y || draw_y >= clip_y + clip_h) {
+			data += bytes_per_row;
+			continue;
+		}
+		uint32_t *row_start = g_state.pixels + draw_y * SCREEN_W;
 		int drawn = 0;
 		for (int b = 0; b < bytes_per_row; b++) {
 			uint8_t byte = *data++;
@@ -104,8 +138,8 @@ void render_sprite_clipped(const uint8_t *data, int x, int y, int w, int h,
 				int draw_x = x + drawn + p;
 				if (draw_x < clip_x || draw_x >= clip_x + clip_w) continue;
 				uint8_t pix = (byte >> (6 - p * 2)) & 0x3;
-				uint8_t ci = cga_pal_1[pix & 3];
-				g_state.pixels[draw_y * SCREEN_W + draw_x] = cga_colors[ci];
+				uint8_t ci = (uint8_t)cga_pal_1[pix & 3];
+				row_start[draw_x] = cga_colors[ci];
 			}
 			drawn += to_draw;
 		}
@@ -125,13 +159,14 @@ void render_char(char c, int x, int y)
 		case '!': render_sprite(sprite_punctuation[0], x, y, 8, 8); break;
 		case '-': render_sprite(sprite_punctuation[1], x, y, 8, 8); break;
 		case '.': render_sprite(sprite_punctuation[2], x, y, 8, 8); break;
-		case ' ': x -= 3; break;
+		case ' ': break;
 		}
 	}
 }
 
 void render_text(const char *text, int x, int y)
 {
+	if (!text) return;
 	while (*text) {
 		render_char(*text, x, y);
 		if (*text >= '0' && *text <= '9') x += 6;
@@ -155,6 +190,7 @@ void render_number(int num, int x, int y, int digits)
 
 void render_line(int x1, int y1, int x2, int y2, uint8_t color)
 {
+	if (!g_state.pixels) return;
 	uint32_t c = cga_colors[color & 15];
 	int dx = abs(x2 - x1), sx = x1 < x2 ? 1 : -1;
 	int dy = -abs(y2 - y1), sy = y1 < y2 ? 1 : -1;
