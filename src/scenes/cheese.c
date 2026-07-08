@@ -112,11 +112,11 @@ static void cheese_render(struct scene *s)
 
 	for (int i = 0; i < 6; i++) {
 		if (d->cheese_active[i])
-			render_sprite(sprite_cheese_chunk, d->cheese_x[i], d->cheese_y[i], 8, 8);
+			render_fill_rect(d->cheese_x[i] - 2, d->cheese_y[i] - 2, 5, 5, PAL_YELLOW);
 	}
 
 	for (int i = 0; i < 3; i++) {
-		render_sprite(sprite_mouse, d->mice_x[i], d->mice_y[i], 8, 8);
+		render_fill_rect(d->mice_x[i] - 3, d->mice_y[i] - 3, 6, 6, PAL_LRED);
 	}
 
 	player_render(&d->cat);

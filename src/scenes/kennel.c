@@ -111,11 +111,11 @@ static void kennel_render(struct scene *s)
 
 	for (int i = 0; i < 3; i++) {
 		if (d->food_active[i]) {
-			render_sprite(sprite_bone, d->food_x[i], d->food_y[i], 8, 8);
+			render_fill_rect(d->food_x[i] - 3, d->food_y[i] - 3, 6, 6, PAL_WHITE);
 		}
 	}
 
-	render_sprite(sprite_dog, d->dog_x, d->dog_y, 12, 12);
+	render_fill_rect(d->dog_x, d->dog_y, 12, 12, PAL_RED);
 	player_render(&d->cat);
 
 	render_text("KENNEL", 4, 2);

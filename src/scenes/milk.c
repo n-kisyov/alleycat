@@ -110,10 +110,10 @@ static void milk_render(struct scene *s)
 
 	for (int i = 0; i < MILK_COUNT; i++) {
 		if (d->milk_active[i])
-			render_sprite(sprite_milk_bottle, d->milk_x[i], d->milk_y[i], 8, 8);
+			render_fill_rect(d->milk_x[i] - 3, d->milk_y[i] - 2, 6, 8, PAL_WHITE);
 	}
 
-	render_sprite(sprite_broom, d->broom_x, d->broom_y, 8, 8);
+	render_fill_rect(d->broom_x - 2, d->broom_y - 8, 4, 16, PAL_BROWN);
 	player_render(&d->cat);
 
 	render_text("MILK ROOM", 4, 2);

@@ -5,14 +5,17 @@
 #include <stdlib.h>
 
 const uint32_t cga_colors[16] = {
-	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+	0xFF000000, 0xFF0000AA, 0xFF00AA00, 0xFF00AAAA,
+	0xFFAA0000, 0xFFAA00AA, 0xFFAA5500, 0xFFAAAAAA,
+	0xFF555555, 0xFF5555FF, 0xFF55FF55, 0xFF55FFFF,
+	0xFFFF5555, 0xFFFF55FF, 0xFFFFFF55, 0xFFFFFFFF
 };
 
 static const int cga_pal_1[4] = { 0, 11, 13, 15 };
 
 static SDL_Renderer *sdl_ren;
-static SDL_Surface   *surf;
-static int            sw, sh;
+static SDL_Surface *surf;
+static int sw, sh;
 
 void render_init(int w, int h)
 {
@@ -26,29 +29,16 @@ void render_init(int w, int h)
 	if (sdl_ren)
 		SDL_RenderSetLogicalSize(sdl_ren, w, h);
 
-	surf = SDL_CreateRGBSurfaceWithFormat(0, w, h, 8, SDL_PIXELFORMAT_INDEX8);
-	if (surf) {
-		SDL_Color pal[16];
-		const uint32_t orig[16] = {
-			0xFF000000, 0xFF0000AA, 0xFF00AA00, 0xFF00AAAA,
-			0xFFAA0000, 0xFFAA00AA, 0xFFAA5500, 0xFFAAAAAA,
-			0xFF555555, 0xFF5555FF, 0xFF55FF55, 0xFF55FFFF,
-			0xFFFF5555, 0xFFFF55FF, 0xFFFFFF55, 0xFFFFFFFF
-		};
-		for (int i = 0; i < 16; i++) {
-			pal[i].r = (orig[i] >> 16) & 0xFF;
-			pal[i].g = (orig[i] >>  8) & 0xFF;
-			pal[i].b = (orig[i] >>  0) & 0xFF;
-			pal[i].a = 255;
-		}
-		SDL_SetPaletteColors(surf->format->palette, pal, 0, 16);
-	}
+	surf = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32,
+		SDL_PIXELFORMAT_ARGB8888);
+	if (!surf)
+		surf = SDL_CreateRGBSurface(0, w, h, 32,
+			0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000);
 }
 
 void render_present(void)
 {
 	if (!sdl_ren || !surf) return;
-
 	SDL_Texture *tex = SDL_CreateTextureFromSurface(sdl_ren, surf);
 	if (tex) {
 		SDL_SetRenderDrawColor(sdl_ren, 0, 0, 0, 255);
@@ -59,18 +49,24 @@ void render_present(void)
 	SDL_RenderPresent(sdl_ren);
 }
 
-static void put8(int x, int y, uint8_t ci)
+static void put32(int x, int y, uint32_t c)
 {
-	if (!surf || x < 0 || x >= sw || y < 0 || y >= sh) return;
-	((uint8_t *)surf->pixels)[y * surf->pitch + x] = ci;
+	if (!surf || (unsigned)x >= (unsigned)sw || (unsigned)y >= (unsigned)sh)
+		return;
+	uint32_t *p = (uint32_t *)((uint8_t *)surf->pixels + y * surf->pitch);
+	p[x] = c;
 }
 
 void render_fill(uint8_t ci)
 {
 	if (!surf) return;
-	uint8_t *p = (uint8_t *)surf->pixels;
-	int sz = surf->pitch * sh;
-	memset(p, ci & 15, sz);
+	uint32_t c = cga_colors[ci & 15];
+	uint8_t *row = (uint8_t *)surf->pixels;
+	for (int y = 0; y < sh; y++) {
+		uint32_t *p = (uint32_t *)row;
+		for (int x = 0; x < sw; x++) p[x] = c;
+		row += surf->pitch;
+	}
 }
 
 void render_fill_rect(int x, int y, int w, int h, uint8_t ci)
@@ -81,10 +77,10 @@ void render_fill_rect(int x, int y, int w, int h, uint8_t ci)
 	if (x + w > sw) w = sw - x;
 	if (y + h > sh) h = sh - y;
 	if (w <= 0 || h <= 0) return;
-	uint8_t c8 = ci & 15;
+	uint32_t c = cga_colors[ci & 15];
 	for (int row = 0; row < h; row++)
 		for (int col = 0; col < w; col++)
-			put8(x + col, y + row, c8);
+			put32(x + col, y + row, c);
 }
 
 void render_sprite(const uint8_t *data, int x, int y, int w, int h)
@@ -102,9 +98,10 @@ void render_sprite(const uint8_t *data, int x, int y, int w, int h)
 			if (n > 4) n = 4;
 			for (int p = 0; p < n; p++) {
 				int dx = x + drawn + p;
-				if (dx < 0 || dx >= sw) continue;
-				uint8_t px = (byte >> (6 - p * 2)) & 0x3;
-				put8(dx, dy, (uint8_t)cga_pal_1[px]);
+				if ((unsigned)dx >= (unsigned)sw) continue;
+				uint8_t px = (byte >> (6 - p * 2)) & 3;
+				if (px == 0) continue;
+				put32(dx, dy, cga_colors[cga_pal_1[px]]);
 			}
 			drawn += n;
 		}
@@ -126,9 +123,10 @@ void render_sprite_clipped(const uint8_t *data, int x, int y, int w, int h,
 			if (n > 4) n = 4;
 			for (int p = 0; p < n; p++) {
 				int dx = x + drawn + p;
-				if (dx < cx || dx >= cx + cw || dx < 0 || dx >= sw) continue;
-				uint8_t px = (byte >> (6 - p * 2)) & 0x3;
-				put8(dx, dy, (uint8_t)cga_pal_1[px]);
+				if (dx < cx || dx >= cx + cw || (unsigned)dx >= (unsigned)sw) continue;
+				uint8_t px = (byte >> (6 - p * 2)) & 3;
+				if (px == 0) continue;
+				put32(dx, dy, cga_colors[cga_pal_1[px]]);
 			}
 			drawn += n;
 		}
@@ -171,13 +169,13 @@ void render_number(int num, int x, int y, int digits)
 void render_line(int x1, int y1, int x2, int y2, uint8_t color)
 {
 	if (!surf) return;
-	uint8_t c = color & 15;
+	uint32_t c = cga_colors[color & 15];
 	int dx = abs(x2 - x1), sx = x1 < x2 ? 1 : -1;
 	int dy = -abs(y2 - y1), sy = y1 < y2 ? 1 : -1;
 	int err = dx + dy;
 	while (1) {
 		if ((unsigned)x1 < (unsigned)sw && (unsigned)y1 < (unsigned)sh)
-			put8(x1, y1, c);
+			put32(x1, y1, c);
 		if (x1 == x2 && y1 == y2) break;
 		int e2 = 2 * err;
 		if (e2 >= dy) { err += dy; x1 += sx; }

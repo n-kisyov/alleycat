@@ -4,6 +4,8 @@
 #include "game.h"
 #include <string.h>
 
+#define GROUND_Y 152
+
 void player_init(struct player *p)
 {
 	memset(p, 0, sizeof(*p));
@@ -30,12 +32,11 @@ void player_render(struct player *p)
 		}
 		w = 12; h = 12;
 	} else if (p->sitting) {
-		int head_idx = (p->sit_timer / 8) % 8;
-		int body_idx = (p->sit_timer / 8) % 3;
-		const uint8_t *head = head_idx < 7 ?
-			(head_idx % 2 == 0 ? cat_head_front1 : cat_head_front2) : cat_head_back;
-		const uint8_t *body = body_idx == 0 ? cat_body1 :
-		                      body_idx == 1 ? cat_body2 : cat_body3;
+		int hi = (p->sit_timer / 8) % 8;
+		int bi = (p->sit_timer / 8) % 3;
+		const uint8_t *head = hi < 7 ?
+			(hi % 2 == 0 ? cat_head_front1 : cat_head_front2) : cat_head_back;
+		const uint8_t *body = bi == 0 ? cat_body1 : bi == 1 ? cat_body2 : cat_body3;
 		render_sprite(head, p->x, p->y, 16, 6);
 		render_sprite(body, p->x, p->y + 6, 16, 6);
 		return;
@@ -55,11 +56,22 @@ void player_render(struct player *p)
 void player_update(struct player *p, float dt)
 {
 	if (!p->alive) return;
-
 	(void)dt;
-	if (p->sitting) {
-		p->sit_timer++;
-		return;
+
+	if (!p->swimming && !p->on_ground) {
+		p->vy += 1;
+		p->y += p->vy;
+		if (p->vy > 0) {
+			p->jumping = 0;
+			p->falling = 1;
+		}
+		if (p->y >= GROUND_Y) {
+			p->y = GROUND_Y;
+			p->vy = 0;
+			p->jumping = 0;
+			p->falling = 0;
+			p->on_ground = 1;
+		}
 	}
 
 	p->anim_timer++;
@@ -69,18 +81,6 @@ void player_update(struct player *p, float dt)
 			p->anim_frame = (p->anim_frame + 1) % 3;
 		} else if (!p->jumping && !p->falling && !p->sitting) {
 			p->anim_frame = (p->anim_frame + 1) % CAT_WALK_FRAMES;
-		}
-	}
-
-	if (p->falling || p->jumping) {
-		p->vy += 1;
-		p->y += p->vy;
-		if (p->y >= 152) {
-			p->y = 152;
-			p->vy = 0;
-			p->jumping = 0;
-			p->falling = 0;
-			p->on_ground = 1;
 		}
 	}
 
@@ -107,9 +107,10 @@ void player_move(struct player *p, int dx, int dy)
 void player_jump(struct player *p)
 {
 	if (p->on_ground && !p->swimming) {
-		p->vy = -8;
-		p->jumping = 1;
+		p->vy = -5;
 		p->on_ground = 0;
+		p->jumping = 1;
+		p->falling = 0;
 		p->sitting = 0;
 	}
 }

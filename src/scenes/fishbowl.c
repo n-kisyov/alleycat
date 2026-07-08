@@ -122,17 +122,10 @@ static void fishbowl_render(struct scene *s)
 
 	for (int i = 0; i < 4; i++) {
 		if (d->fishes[i].collected) continue;
-		render_sprite(sprite_fish, d->fishes[i].x, d->fishes[i].y, 8, 8);
+		render_fill_rect(d->fishes[i].x, d->fishes[i].y, 6, 6, PAL_YELLOW);
 	}
 
-	const uint8_t *cs;
-	if (d->cat.direction == PLAYER_DIR_RIGHT)
-		cs = d->cat.anim_frame == 0 ? cat_swim_right1 :
-		     d->cat.anim_frame == 1 ? cat_swim_right2 : cat_swim_right3;
-	else
-		cs = d->cat.anim_frame == 0 ? cat_swim_left1 :
-		     d->cat.anim_frame == 1 ? cat_swim_left2 : cat_swim_left3;
-	render_sprite(cs, d->cat.x, d->cat.y, 12, 12);
+	player_render(&d->cat);
 
 	render_text("COLLECT THE FISH!", 120, 185);
 	int remaining = 0;

@@ -118,7 +118,7 @@ static void birdcage_render(struct scene *s)
 
 	for (int i = 0; i < 4; i++) {
 		if (d->birds[i])
-			render_sprite(sprite_bird, d->bird_x[i], d->bird_y[i], 8, 8);
+			render_fill_rect(d->bird_x[i], d->bird_y[i], 6, 6, PAL_YELLOW);
 	}
 
 	player_render(&d->cat);

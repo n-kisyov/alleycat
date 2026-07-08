@@ -101,7 +101,7 @@ static void love_render(struct scene *s)
 	if (d->stage == 0) {
 		for (int i = 0; i < 5; i++) {
 			if (d->heart_active[i])
-				render_sprite(sprite_heart, d->heart_x[i], d->heart_y[i], 8, 8);
+				render_fill_rect(d->heart_x[i] - 3, d->heart_y[i] - 3, 7, 7, PAL_LRED);
 		}
 		render_text("COLLECT HEARTS!", 100, 180);
 	} else {
@@ -109,8 +109,7 @@ static void love_render(struct scene *s)
 		render_fill_rect(120, 50, 80, 100, PAL_LRED);
 	}
 
-	const uint8_t *partner_spr = cat_walk_left[(d->timer / 12) % CAT_WALK_FRAMES];
-	render_sprite(partner_spr, d->partner_x, d->partner_y, 24, 11);
+	render_fill_rect(d->partner_x, d->partner_y, 24, 11, PAL_LMAGENTA);
 
 	player_render(&d->cat);
 

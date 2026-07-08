@@ -26,7 +26,6 @@ static void title_enter(struct scene *s)
 	d->cat.y = 150;
 	srand((unsigned int)SDL_GetTicks());
 	s->data = d;
-	sound_play_intro_music();
 }
 
 static void title_update(struct scene *s, float dt)
@@ -38,18 +37,18 @@ static void title_update(struct scene *s, float dt)
 		d->logo_flag = !d->logo_flag;
 
 	d->cat_timer++;
-	if (d->cat.x <= 8)
-		player_move(&d->cat, 2, 0);
-	else if (d->cat.x >= 280)
-		player_move(&d->cat, -2, 0);
-	else if (d->cat_timer >= d->next_cat_timer) {
-		d->cat_timer = 0;
-		d->next_cat_timer = 18 + (rand() % 30);
-		int r = rand() % 256;
-		if (r > 160) player_move(&d->cat, 0, 0);
-		else if (r & 1) player_move(&d->cat, 2, 0);
-		else player_move(&d->cat, -2, 0);
-	}
+		if (d->cat.x <= 8)
+			player_move(&d->cat, 1, 0);
+		else if (d->cat.x >= 280)
+			player_move(&d->cat, -1, 0);
+		else if (d->cat_timer >= d->next_cat_timer) {
+			d->cat_timer = 0;
+			d->next_cat_timer = 25 + (rand() % 40);
+			int r = rand() % 256;
+			if (r > 160) player_move(&d->cat, 0, 0);
+			else if (r & 1) player_move(&d->cat, 1, 0);
+			else player_move(&d->cat, -1, 0);
+		}
 	player_update(&d->cat, dt);
 
 	if (input_key_just_pressed(KEY_ACTION) || input_key_just_pressed(KEY_RETURN)) {

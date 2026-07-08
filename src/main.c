@@ -73,6 +73,10 @@ int main(int argc, char **argv)
 		scene_render();
 		render_present();
 		sound_update();
+
+		Uint32 elapsed = SDL_GetTicks() - now;
+		if (elapsed < 16)
+			SDL_Delay(16 - elapsed);
 	}
 
 	while (scene_current()) scene_pop();
