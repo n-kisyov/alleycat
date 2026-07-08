@@ -12,20 +12,19 @@
 struct title_data {
 	int timer;
 	int logo_flag;
-	uint32_t seed;
 	struct player cat;
 	int cat_timer;
+	int next_cat_timer;
+	int frame;
 };
 
 static void title_enter(struct scene *s)
 {
 	struct title_data *d = calloc(1, sizeof(*d));
-	d->seed = 42;
-	d->cat_timer = 0;
 	player_init(&d->cat);
 	d->cat.x = -30;
-	d->cat.y = 96;
-	srand(d->seed);
+	d->cat.y = 150;
+	srand((unsigned int)SDL_GetTicks());
 	s->data = d;
 	sound_play_intro_music();
 }
@@ -33,25 +32,23 @@ static void title_enter(struct scene *s)
 static void title_update(struct scene *s, float dt)
 {
 	struct title_data *d = (struct title_data *)s->data;
-	(void)dt;
-
 	d->timer++;
-	if (d->timer % 16 == 0)
+	d->frame++;
+	if (d->frame % 16 == 0)
 		d->logo_flag = !d->logo_flag;
 
 	d->cat_timer++;
-	if (d->cat.x <= 32)
+	if (d->cat.x <= 8)
 		player_move(&d->cat, 2, 0);
-	else if (d->cat.x >= 288)
+	else if (d->cat.x >= 280)
 		player_move(&d->cat, -2, 0);
-	else {
-		if (d->cat_timer > 18) {
-			d->cat_timer = 0;
-			int r = rand() % 256;
-			if (r > 160) player_move(&d->cat, 0, 0);
-			else if (r & 1) player_move(&d->cat, 2, 0);
-			else player_move(&d->cat, -2, 0);
-		}
+	else if (d->cat_timer >= d->next_cat_timer) {
+		d->cat_timer = 0;
+		d->next_cat_timer = 18 + (rand() % 30);
+		int r = rand() % 256;
+		if (r > 160) player_move(&d->cat, 0, 0);
+		else if (r & 1) player_move(&d->cat, 2, 0);
+		else player_move(&d->cat, -2, 0);
 	}
 	player_update(&d->cat, dt);
 
@@ -67,53 +64,42 @@ static void title_render(struct scene *s)
 
 	render_fill(PAL_CYAN);
 
-	for (int i = 4160; i < 4240; i += 2) {
-		render_sprite(sprite_fence_top[rand() % 4], (i - 4160) * 2 + 4, 160, 8, 8);
-	}
+	for (int i = 0; i < 40; i++)
+		render_sprite(sprite_fence_top[i % 4], i * 8, 150, 8, 8);
 
-	render_fill_rect(0, 168, SCREEN_W, 32, PAL_BROWN);
+	render_fill_rect(0, 157, 320, 43, PAL_BROWN);
+	render_fill_rect(0, 182, 320, 18, PAL_DGRAY);
 
-	for (int i = 0; i < 4; i++) {
-		for (int j = 0; j < 4; j++) {
-			render_sprite(sprite_fence_hole[i], j * 16 + 4, 176, 8, 5);
-		}
-	}
+	render_text("HI",                6, 186);
+	render_text("000000",           22, 186);
+	render_text("SCORE",            98, 186);
+	render_text("000000",          130, 186);
 
-	render_sprite(title_sprite6, 260, 184, 16, 8);
-
-	render_text("HI", 8, 164);
-	render_number(0, 20, 164 + 2, 6);
-	render_text("SCORE", 100, 164);
-	render_number(0, 110, 164 + 2, 6);
-	render_text("0", 64, 164 + 2);
-	render_number(9, 68, 164 + 2, 1);
-
-	render_sprite(title_sprite1, 20, 60, 44, 29);
-	render_sprite(title_sprite2, 180, 60, 56, 22);
-	render_sprite(title_sprite3, 108, 88, 12, 12);
-	render_sprite(title_sprite4, 128, 60, 56, 8);
-
-	render_sprite(sprite_copyright, 180, 140, 48, 11);
+	render_text("THE",             130, 60);
+	render_text("ALLEY",           124, 70);
+	render_text("CAT!",            122, 80);
 
 	if (d->logo_flag)
-		render_sprite(sprite_synsoft, 180, 80, 40, 12);
+		render_sprite(sprite_synsoft, 100, 96, 80, 12);
 	else
-		render_sprite(sprite_ibm_corp, 180, 80, 40, 12);
+		render_sprite(sprite_ibm_corp, 100, 96, 80, 12);
 
-	render_text("THE", 108, 100);
-	render_text("ALLEY", 108, 108);
-	render_text("CAT!", 108, 116);
+	render_sprite(sprite_copyright, 112, 114, 96, 11);
+
+	for (int i = 0; i < 3; i++) {
+		int tx = 30 + i * 100;
+		render_sprite(sprite_trashcan_lid, tx, 108, 40, 12);
+		render_sprite(sprite_trashcan_mid, tx + 4, 120, 32, 8);
+		render_sprite(sprite_trashcan_bot, tx + 4, 128, 32, 11);
+	}
 
 	player_render(&d->cat);
 
 	if (d->timer % 64 < 32)
-		render_text("PRESS SPACE", 115, 180);
+		render_text("PRESS SPACE TO START", 80, 172);
 }
 
-static void title_exit(struct scene *s)
-{
-	free(s->data);
-}
+static void title_exit(struct scene *s) { free(s->data); }
 
 static void title_keydown(struct scene *s, SDL_Keycode key)
 {
@@ -127,10 +113,10 @@ static void title_keydown(struct scene *s, SDL_Keycode key)
 struct scene *title_create(void)
 {
 	struct scene *s = calloc(1, sizeof(*s));
-	s->enter = title_enter;
-	s->update = title_update;
-	s->render = title_render;
-	s->exit = title_exit;
+	s->enter   = title_enter;
+	s->update  = title_update;
+	s->render  = title_render;
+	s->exit    = title_exit;
 	s->keydown = title_keydown;
 	return s;
 }

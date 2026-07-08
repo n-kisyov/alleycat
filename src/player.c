@@ -10,15 +10,15 @@ void player_init(struct player *p)
 	p->direction = PLAYER_DIR_RIGHT;
 	p->alive = 1;
 	p->on_ground = 1;
-	p->w = CAT_W;
-	p->h = CAT_H2 * 4;
+	p->w = 24;
+	p->h = 11;
 }
 
 void player_render(struct player *p)
 {
 	if (!p->alive) return;
 	const uint8_t *sprite;
-	int w = CAT_W, h = CAT_H2 * 4;
+	int w, h;
 
 	if (p->swimming) {
 		if (p->direction == PLAYER_DIR_RIGHT) {
@@ -36,16 +36,18 @@ void player_render(struct player *p)
 			(head_idx % 2 == 0 ? cat_head_front1 : cat_head_front2) : cat_head_back;
 		const uint8_t *body = body_idx == 0 ? cat_body1 :
 		                      body_idx == 1 ? cat_body2 : cat_body3;
-		render_sprite(head, p->x, p->y, CAT_HEAD_W, CAT_HEAD_H);
-		render_sprite(body, p->x, p->y + CAT_HEAD_H, CAT_BODY_W, CAT_BODY_H);
+		render_sprite(head, p->x, p->y, 16, 6);
+		render_sprite(body, p->x, p->y + 6, 16, 6);
 		return;
 	} else if (p->jumping || p->falling) {
 		sprite = cat_jump_up;
-		w = 14; h = 12;
+		w = 28; h = 12;
 	} else if (p->direction == PLAYER_DIR_RIGHT) {
 		sprite = cat_walk_right[p->anim_frame % CAT_WALK_FRAMES];
+		w = 24; h = 11;
 	} else {
 		sprite = cat_walk_left[p->anim_frame % CAT_WALK_FRAMES];
+		w = 24; h = 11;
 	}
 	render_sprite(sprite, p->x, p->y, w, h);
 }

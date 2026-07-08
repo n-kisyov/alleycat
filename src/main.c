@@ -6,7 +6,6 @@
 #include "scenes/title.h"
 #include <SDL.h>
 #include <stdio.h>
-#include <stdlib.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -17,8 +16,7 @@ int main(int argc, char **argv)
 	(void)argc; (void)argv;
 
 	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER) < 0) {
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error",
-			SDL_GetError(), NULL);
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", SDL_GetError(), NULL);
 		return 1;
 	}
 
@@ -33,9 +31,9 @@ int main(int argc, char **argv)
 			SCREEN_W * 3, SCREEN_H * 3,
 			SDL_WINDOW_SHOWN);
 	}
+
 	if (!g_state.window) {
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error",
-			SDL_GetError(), NULL);
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", SDL_GetError(), NULL);
 		SDL_Quit();
 		return 1;
 	}
@@ -47,34 +45,26 @@ int main(int argc, char **argv)
 
 	scene_push(title_create());
 
-	Uint32 last_time = SDL_GetTicks();
+	Uint32 last = SDL_GetTicks();
 	while (g_state.running) {
-		SDL_Event event;
-		while (SDL_PollEvent(&event)) {
-			switch (event.type) {
-			case SDL_QUIT:
-				g_state.running = 0;
-				break;
-			case SDL_KEYDOWN:
-				if (event.key.keysym.sym == SDLK_ESCAPE)
-					g_state.running = 0;
-				if (event.key.keysym.sym == SDLK_RETURN &&
-				    (SDL_GetModState() & KMOD_ALT)) {
+		SDL_Event e;
+		while (SDL_PollEvent(&e)) {
+			if (e.type == SDL_QUIT) g_state.running = 0;
+			else if (e.type == SDL_KEYDOWN) {
+				scene_keydown(e.key.keysym.sym);
+				if (e.key.keysym.sym == SDLK_ESCAPE) g_state.running = 0;
+				if (e.key.keysym.sym == SDLK_RETURN && (SDL_GetModState() & KMOD_ALT)) {
 					Uint32 f = SDL_GetWindowFlags(g_state.window);
 					SDL_SetWindowFullscreen(g_state.window,
 						(f & SDL_WINDOW_FULLSCREEN) ? 0 : SDL_WINDOW_FULLSCREEN);
 				}
-				scene_keydown(event.key.keysym.sym);
-				break;
-			case SDL_KEYUP:
-				scene_keyup(event.key.keysym.sym);
-				break;
 			}
+			else if (e.type == SDL_KEYUP) scene_keyup(e.key.keysym.sym);
 		}
 
 		Uint32 now = SDL_GetTicks();
-		float dt = (now - last_time) / 1000.0f;
-		last_time = now;
+		float dt = (now - last) / 1000.0f;
+		last = now;
 		if (dt > 0.1f) dt = 0.1f;
 
 		g_state.ticks++;
@@ -82,16 +72,13 @@ int main(int argc, char **argv)
 		scene_update(dt);
 		scene_render();
 		render_present();
-
 		sound_update();
 	}
 
 	while (scene_current()) scene_pop();
-
 	sound_close();
 	SDL_DestroyWindow(g_state.window);
 	SDL_Quit();
-
 	return 0;
 }
 
