@@ -13,6 +13,10 @@
 
 void    input_init(void);
 void    input_update(void);
+
+/* Called from the event loop for every key press.  A tap shorter than one
+ * logic tick would otherwise be gone before the keyboard state is sampled. */
+void    input_note_keydown(int scancode);
 uint8_t input_get(void);
 int     input_key_pressed(int key);
 int     input_key_just_pressed(int key);

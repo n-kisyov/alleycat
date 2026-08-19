@@ -154,8 +154,9 @@ void render_rect(int x, int y, int w, int h, uint8_t color)
 
 /* ---- sprite blits ------------------------------------------------------ */
 
-/* mode: 0 opaque, 1 keyed on white, 2 AND into the destination. */
-static void blit(const struct sprite *s, int x, int y, int mode)
+/* mode: 0 opaque, 1 keyed on white, 2 AND into the destination,
+ *       3 stencil -- every non-key pixel drawn in `tint`. */
+static void blit(const struct sprite *s, int x, int y, int mode, uint8_t tint)
 {
 	int bytes_per_row, row;
 	const uint8_t *data;
@@ -181,10 +182,10 @@ static void blit(const struct sprite *s, int x, int y, int mode)
 				continue;
 
 			px = (data[col >> 2] >> (6 - (col & 3) * 2)) & 3;
-			if (mode == 1 && px == KEY_INDEX)
+			if ((mode == 1 || mode == 3) && px == KEY_INDEX)
 				continue;
 
-			c = cga_pal_1[px];
+			c = (mode == 3) ? tint : cga_pal_1[px];
 			if (mode == 2)
 				fb[(size_t)dy * sw + dx] &= c;
 			else
@@ -193,9 +194,14 @@ static void blit(const struct sprite *s, int x, int y, int mode)
 	}
 }
 
-void render_sprite(const struct sprite *s, int x, int y)       { blit(s, x, y, 0); }
-void render_sprite_keyed(const struct sprite *s, int x, int y) { blit(s, x, y, 1); }
-void render_sprite_and(const struct sprite *s, int x, int y)   { blit(s, x, y, 2); }
+void render_sprite(const struct sprite *s, int x, int y)       { blit(s, x, y, 0, 0); }
+void render_sprite_keyed(const struct sprite *s, int x, int y) { blit(s, x, y, 1, 0); }
+void render_sprite_and(const struct sprite *s, int x, int y)   { blit(s, x, y, 2, 0); }
+
+void render_sprite_stencil(const struct sprite *s, int x, int y, uint8_t color)
+{
+	blit(s, x, y, 3, color);
+}
 
 /* ---- text -------------------------------------------------------------- */
 
@@ -237,6 +243,12 @@ int render_text_width(const char *text)
 void render_text_centered(const char *text, int y)
 {
 	render_text(text, (sw - render_text_width(text)) / 2, y);
+}
+
+void render_banner(const char *text, int y)
+{
+	render_fill_rect(0, y, sw, TEXT_BAND_H, CGA_CYAN);
+	render_text_centered(text, y + (TEXT_BAND_H - GLYPH_H) / 2);
 }
 
 void render_number(int num, int x, int y, int digits)

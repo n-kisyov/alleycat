@@ -1,143 +1,175 @@
 #include "cheese.h"
+#include "room.h"
 #include "../game.h"
 #include "../render.h"
 #include "../input.h"
 #include "../player.h"
 #include "../sprites.h"
 #include "../sound.h"
-#include "alley.h"
 #include <stdlib.h>
 #include <string.h>
 
+#define CHEESE_COUNT 6
+#define MICE_COUNT   3
+#define CAUGHT_GRACE SECONDS(1)
+#define CAT_GROUND   (ROOM_FLOOR_Y - 11)
+
 struct cheese_data {
 	struct player cat;
+	struct { int x, y, active; } cheese[CHEESE_COUNT];
+	struct { int x, y, vx; } mouse[MICE_COUNT];
 	int timer;
-	int cheese_x[6], cheese_y[6], cheese_active[6];
-	int mice_x[3], mice_y[3], mice_vx[3], mice_vy[3];
-	int cheese_collected;
-	int warning_timer;
+	int taken;
+	int caught_timer;
 };
 
 static void cheese_enter(struct scene *s)
 {
 	struct cheese_data *d = calloc(1, sizeof(*d));
-	player_init(&d->cat);
-	d->cat.x = 150;
-	d->cat.y = 140;
+	int i;
 
-	for (int i = 0; i < 6; i++) {
-		d->cheese_x[i] = 30 + rand() % 260;
-		d->cheese_y[i] = 40 + rand() % 100;
-		d->cheese_active[i] = 1;
+	if (!d)
+		return;
+
+	player_init(&d->cat);
+	player_set_pos(&d->cat, SCREEN_W / 2, CAT_GROUND);
+	player_set_limits(&d->cat, 8, SCREEN_W - 8);
+
+	for (i = 0; i < CHEESE_COUNT; i++) {
+		d->cheese[i].x = 20 + (i % 3) * 100 + rand() % 40;
+		d->cheese[i].y = ROOM_CEILING_Y + 24 + (i / 3) * 52;
+		d->cheese[i].active = 1;
 	}
-	for (int i = 0; i < 3; i++) {
-		d->mice_x[i] = 50 + i * 80;
-		d->mice_y[i] = 100;
-		d->mice_vx[i] = (rand() % 3 - 1) * 2;
-		d->mice_vy[i] = (rand() % 3 - 1) * 2;
+	for (i = 0; i < MICE_COUNT; i++) {
+		d->mouse[i].x  = 40 + i * 80;
+		d->mouse[i].y  = ROOM_FLOOR_Y - spr_mouse.h;
+		d->mouse[i].vx = (i % 2) ? 1 : -1;
 	}
 	s->data = d;
 }
 
-static void cheese_update(struct scene *s, float dt)
+static void cheese_update(struct scene *s)
 {
 	struct cheese_data *d = (struct cheese_data *)s->data;
-	d->timer++;
-	(void)dt;
+	struct rect cat_box;
+	int dx = 0, i, touching = 0;
 
-	int dx = 0, dy = 0;
-	if (input_key_pressed(KEY_LEFT))  dx = -2;
-	if (input_key_pressed(KEY_RIGHT)) dx = 2;
-	if (input_key_pressed(KEY_UP))    dy = -2;
-	if (input_key_pressed(KEY_DOWN))  dy = 2;
-	if (input_key_just_pressed(KEY_ACTION)) player_jump(&d->cat);
+	if (!d)
+		return;
 
-	if (dx == 0 && dy == 0 && d->cat.on_ground)
-		d->cat.sitting = 1;
-	else
-		d->cat.sitting = 0;
+	if (++d->timer > game_room_time_limit()) {
+		room_fail("TIME UP");
+		return;
+	}
 
-	player_move(&d->cat, dx, dy);
-	player_update(&d->cat, dt);
-	if (d->cat.y > 145) { d->cat.y = 145; d->cat.on_ground = 1; d->cat.vy = 0; d->cat.jumping = 0; d->cat.falling = 0; }
+	if (input_key_pressed(KEY_LEFT))  dx -= PLAYER_SPEED;
+	if (input_key_pressed(KEY_RIGHT)) dx += PLAYER_SPEED;
+	if (input_key_just_pressed(KEY_ACTION))
+		player_jump(&d->cat);
 
-	for (int i = 0; i < 6; i++) {
-		if (!d->cheese_active[i]) continue;
-		if (abs(d->cat.x - d->cheese_x[i]) < 10 && abs(d->cat.y - d->cheese_y[i]) < 10) {
-			d->cheese_active[i] = 0;
-			d->cheese_collected++;
-			sound_play_tone(900, 100);
+	player_set_input(&d->cat, dx);
+	player_update(&d->cat, CAT_GROUND);
+	cat_box = player_bounds(&d->cat);
+
+	for (i = 0; i < CHEESE_COUNT; i++) {
+		struct rect cr;
+
+		if (!d->cheese[i].active)
+			continue;
+		cr.x = d->cheese[i].x;
+		cr.y = d->cheese[i].y;
+		cr.w = spr_cheese.w;
+		cr.h = spr_cheese.h;
+		if (rect_overlap(cat_box, cr)) {
+			d->cheese[i].active = 0;
+			d->taken++;
+			sound_play_tone(900 + d->taken * 60, 100);
 		}
 	}
 
-	for (int i = 0; i < 3; i++) {
-		d->mice_x[i] += d->mice_vx[i];
-		d->mice_y[i] += d->mice_vy[i];
-		if (d->mice_x[i] < 10 || d->mice_x[i] > 310) d->mice_vx[i] = -d->mice_vx[i];
-		if (d->mice_y[i] < 30 || d->mice_y[i] > 150) d->mice_vy[i] = -d->mice_vy[i];
-		if (rand() % 60 == 0) {
-			d->mice_vx[i] = (rand() % 3 - 1) * 2;
-			d->mice_vy[i] = (rand() % 3 - 1) * 2;
-		}
+	for (i = 0; i < MICE_COUNT; i++) {
+		struct rect mr;
 
-		if (abs(d->cat.x - d->mice_x[i]) < 10 && abs(d->cat.y - d->mice_y[i]) < 12) {
-			d->warning_timer++;
-			if (d->warning_timer > 60) {
-				g_state.lives--;
-				scene_replace(alley_create());
-				return;
-			}
-		}
-	}
-	if (d->warning_timer > 0) d->warning_timer--;
+		d->mouse[i].x += d->mouse[i].vx * (1 + game_enemy_bonus_speed() / 2);
+		if (d->mouse[i].x < 8 || d->mouse[i].x + spr_mouse.w > SCREEN_W - 8)
+			d->mouse[i].vx = -d->mouse[i].vx;
+		else if (rand() % 120 == 0)
+			d->mouse[i].vx = -d->mouse[i].vx;
 
-	if (d->cheese_collected >= 6) {
-		g_state.score += 300;
-		game_room_done(ROOM_CHEESE);
-		scene_replace(alley_create());
+		mr.x = d->mouse[i].x;
+		mr.y = d->mouse[i].y;
+		mr.w = spr_mouse.w;
+		mr.h = spr_mouse.h;
+		if (rect_overlap(cat_box, mr))
+			touching = 1;
 	}
-	if (d->timer > 1800) {
-		g_state.lives--;
-		scene_replace(alley_create());
+
+	if (touching) {
+		if (++d->caught_timer > CAUGHT_GRACE) {
+			room_fail("THE MICE GOT YOU");
+			return;
+		}
+	} else if (d->caught_timer > 0) {
+		d->caught_timer--;
+	}
+
+	if (d->taken >= CHEESE_COUNT) {
+		room_succeed(ROOM_CHEESE, 300 + 50 * g_state.level);
+		return;
 	}
 }
 
 static void cheese_render(struct scene *s)
 {
 	struct cheese_data *d = (struct cheese_data *)s->data;
+	int i;
 
-	render_fill(PAL_BLACK);
-	render_fill_rect(0, 150, SCREEN_W, 50, PAL_BROWN);
-	render_fill_rect(10, 10, SCREEN_W - 20, 140, PAL_LGRAY);
+	if (!d)
+		return;
 
-	for (int i = 0; i < 6; i++) {
-		if (d->cheese_active[i])
-			render_fill_rect(d->cheese_x[i] - 2, d->cheese_y[i] - 2, 5, 5, PAL_YELLOW);
-	}
+	room_draw_walls(CGA_CYAN);
 
-	for (int i = 0; i < 3; i++) {
-		render_fill_rect(d->mice_x[i] - 3, d->mice_y[i] - 3, 6, 6, PAL_LRED);
-	}
+	/* Skirting board, so the floor line reads. */
+	render_fill_rect(0, ROOM_FLOOR_Y - 4, SCREEN_W, 4, CGA_MAGENTA);
+
+	for (i = 0; i < CHEESE_COUNT; i++)
+		if (d->cheese[i].active)
+			render_sprite_stencil(&spr_cheese, d->cheese[i].x, d->cheese[i].y, CGA_WHITE);
+
+	for (i = 0; i < MICE_COUNT; i++)
+		render_sprite_stencil(&spr_mouse, d->mouse[i].x, d->mouse[i].y, CGA_BLACK);
 
 	player_render(&d->cat);
+	room_draw_hud(ROOM_CHEESE, d->taken, CHEESE_COUNT,
+	              game_room_time_limit() - d->timer);
 
-	render_text("CHEESE ROOM", 4, 2);
-	render_text("GOT:", 200, 2);
-	render_number(d->cheese_collected, 240, 2, 1);
-	render_text("/6", 250, 2);
-
-	if (d->warning_timer > 0) render_text("WATCH THE MICE!", 110, 180);
-	render_text("COLLECT ALL CHEESE!", 80, 185);
+	if (d->caught_timer > 0)
+		render_banner("JUMP", 120);
 }
 
-static void cheese_exit(struct scene *s) { free(s->data); }
+static void cheese_exit(struct scene *s)
+{
+	free(s->data);
+	s->data = NULL;
+}
+
+static void cheese_keydown(struct scene *s, SDL_Keycode key)
+{
+	(void)s;
+	if (key == SDLK_ESCAPE)
+		room_leave();
+}
 
 struct scene *cheese_create(void)
 {
 	struct scene *s = calloc(1, sizeof(*s));
-	s->enter  = cheese_enter;
-	s->update = cheese_update;
-	s->render = cheese_render;
-	s->exit   = cheese_exit;
+
+	if (!s)
+		return NULL;
+	s->enter   = cheese_enter;
+	s->update  = cheese_update;
+	s->render  = cheese_render;
+	s->exit    = cheese_exit;
+	s->keydown = cheese_keydown;
 	return s;
 }

@@ -1,146 +1,170 @@
 #include "fishbowl.h"
+#include "room.h"
 #include "../game.h"
 #include "../render.h"
 #include "../input.h"
 #include "../player.h"
 #include "../sprites.h"
 #include "../sound.h"
-#include "alley.h"
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct { int x, y, vy, collected; } fish_t;
+#define FISH_COUNT   4
+#define BUBBLE_COUNT 20
+#define SWIM_SPEED   2
 
 struct fishbowl_data {
 	struct player cat;
-	fish_t fishes[4];
+	struct { int x, y, vy, taken; } fish[FISH_COUNT];
+	int bubble_x[BUBBLE_COUNT];
+	int bubble_y[BUBBLE_COUNT];
 	int timer;
-	int score;
-	int bubbles[20];
-	int bubble_y[20];
+	int taken;
 };
+
+static struct rect water(void)
+{
+	struct rect r;
+	r.x = 8;
+	r.y = ROOM_CEILING_Y + 4;
+	r.w = SCREEN_W - 16;
+	r.h = ROOM_FLOOR_Y - r.y;
+	return r;
+}
 
 static void fishbowl_enter(struct scene *s)
 {
 	struct fishbowl_data *d = calloc(1, sizeof(*d));
-	player_init(&d->cat);
-	d->cat.x = 150;
-	d->cat.y = 160;
-	d->cat.swimming = 1;
-	d->cat.on_ground = 0;
-	player_set_swim(&d->cat, 1);
+	struct rect w = water();
+	int i;
 
-	for (int i = 0; i < 4; i++) {
-		d->fishes[i].x = rand() % 280 + 20;
-		d->fishes[i].y = rand() % 120 + 30;
-		d->fishes[i].vy = (rand() % 3 - 1) * 2;
-		d->fishes[i].collected = 0;
+	if (!d)
+		return;
+
+	player_init(&d->cat);
+	player_set_swim(&d->cat, 1);
+	player_set_pos(&d->cat, SCREEN_W / 2, w.y + w.h / 2);
+
+	for (i = 0; i < FISH_COUNT; i++) {
+		d->fish[i].x  = w.x + 20 + rand() % (w.w - 60);
+		d->fish[i].y  = w.y + 8 + rand() % (w.h - 24);
+		d->fish[i].vy = (rand() % 3 - 1) * 2;
 	}
-	for (int i = 0; i < 20; i++) {
-		d->bubbles[i] = rand() % SCREEN_W;
-		d->bubble_y[i] = rand() % SCREEN_H;
+	for (i = 0; i < BUBBLE_COUNT; i++) {
+		d->bubble_x[i] = w.x + rand() % w.w;
+		d->bubble_y[i] = w.y + rand() % w.h;
 	}
 	s->data = d;
 }
 
-static void fishbowl_update(struct scene *s, float dt)
+static void fishbowl_update(struct scene *s)
 {
 	struct fishbowl_data *d = (struct fishbowl_data *)s->data;
-	d->timer++;
+	struct rect w = water();
+	struct rect cat_box;
+	int dx = 0, dy = 0, i;
 
-	int dx = 0, dy = 0;
-	if (input_key_pressed(KEY_LEFT))  dx = -2;
-	if (input_key_pressed(KEY_RIGHT)) dx = 2;
-	if (input_key_pressed(KEY_UP))    dy = -2;
-	if (input_key_pressed(KEY_DOWN))  dy = 2;
+	if (!d)
+		return;
 
-	d->cat.x += dx;
-	d->cat.y += dy;
-	if (d->cat.x < 8) d->cat.x = 8;
-	if (d->cat.x > SCREEN_W - 20) d->cat.x = SCREEN_W - 20;
-	if (d->cat.y < 20) d->cat.y = 20;
-	if (d->cat.y > SCREEN_H - 20) d->cat.y = SCREEN_H - 20;
-
-	d->cat.anim_timer++;
-	if (d->cat.anim_timer >= 6) {
-		d->cat.anim_timer = 0;
-		d->cat.anim_frame = (d->cat.anim_frame + 1) % 3;
+	if (++d->timer > game_room_time_limit()) {
+		room_fail("TIME UP");
+		return;
 	}
-	if (dx > 0) d->cat.direction = PLAYER_DIR_RIGHT;
-	else if (dx < 0) d->cat.direction = PLAYER_DIR_LEFT;
 
-	for (int i = 0; i < 4; i++) {
-		fish_t *f = &d->fishes[i];
-		if (f->collected) continue;
-		f->y += f->vy;
-		if (f->y < 30 || f->y > 150) f->vy = -f->vy;
-		if (rand() % 50 == 0) f->vy = (rand() % 3 - 1) * 2;
+	if (input_key_pressed(KEY_LEFT))  dx -= SWIM_SPEED;
+	if (input_key_pressed(KEY_RIGHT)) dx += SWIM_SPEED;
+	if (input_key_pressed(KEY_UP))    dy -= SWIM_SPEED;
+	if (input_key_pressed(KEY_DOWN))  dy += SWIM_SPEED;
 
-		if (abs(d->cat.x - f->x) < 14 && abs(d->cat.y - f->y) < 14) {
-			f->collected = 1;
-			d->score++;
-			sound_play_tone(1200 + d->score * 100, 150);
+	player_swim_update(&d->cat, dx, dy, w);
+	cat_box = player_bounds(&d->cat);
+
+	for (i = 0; i < FISH_COUNT; i++) {
+		struct rect fr;
+
+		if (d->fish[i].taken)
+			continue;
+
+		d->fish[i].y += d->fish[i].vy;
+		if (d->fish[i].y < w.y || d->fish[i].y + spr_fish.h > w.y + w.h)
+			d->fish[i].vy = -d->fish[i].vy;
+		if (rand() % 60 == 0)
+			d->fish[i].vy = (rand() % 3 - 1) * 2;
+
+		fr.x = d->fish[i].x;
+		fr.y = d->fish[i].y;
+		fr.w = spr_fish.w;
+		fr.h = spr_fish.h;
+		if (rect_overlap(cat_box, fr)) {
+			d->fish[i].taken = 1;
+			d->taken++;
+			sound_play_tone(1200 + d->taken * 100, 120);
 		}
 	}
 
-	for (int i = 0; i < 20; i++) {
-		d->bubble_y[i] -= (rand() % 2 + 1);
-		if (d->bubble_y[i] < 0) {
-			d->bubble_y[i] = SCREEN_H;
-			d->bubbles[i] = rand() % SCREEN_W;
+	for (i = 0; i < BUBBLE_COUNT; i++) {
+		d->bubble_y[i] -= 1 + rand() % 2;
+		if (d->bubble_y[i] < w.y) {
+			d->bubble_y[i] = w.y + w.h;
+			d->bubble_x[i] = w.x + rand() % w.w;
 		}
 	}
 
-	int all_done = 1;
-	for (int i = 0; i < 4; i++) if (!d->fishes[i].collected) all_done = 0;
-	if (all_done) {
-		g_state.score += d->score * 50;
-		game_room_done(ROOM_FISHBOWL);
-		scene_replace(alley_create());
-	}
-	if (d->timer > 1800) {
-		g_state.lives--;
-		scene_replace(alley_create());
+	if (d->taken >= FISH_COUNT) {
+		room_succeed(ROOM_FISHBOWL, 100 + 50 * g_state.level);
+		return;
 	}
 }
 
 static void fishbowl_render(struct scene *s)
 {
 	struct fishbowl_data *d = (struct fishbowl_data *)s->data;
+	struct rect w = water();
+	int i;
 
-	render_fill(PAL_BLUE);
-	render_fill_rect(8, 20, SCREEN_W - 16, SCREEN_H - 40, PAL_CYAN);
+	if (!d)
+		return;
 
-	render_text("FISHBOWL ROOM", 8, 4);
-	render_text("SCORE:", 180, 4);
-	render_number(d->score, 230, 4, 1);
-	render_text("/4", 240, 4);
+	render_fill(CGA_BLACK);
+	render_fill_rect(w.x, w.y, w.w, w.h, CGA_CYAN);
+	render_rect(w.x - 1, w.y - 1, w.w + 2, w.h + 2, CGA_WHITE);
 
-	for (int i = 0; i < 20; i++) {
-		render_fill_rect(d->bubbles[i], d->bubble_y[i], 3, 3, PAL_WHITE);
-	}
+	for (i = 0; i < BUBBLE_COUNT; i++)
+		render_fill_rect(d->bubble_x[i], d->bubble_y[i], 2, 2, CGA_WHITE);
 
-	for (int i = 0; i < 4; i++) {
-		if (d->fishes[i].collected) continue;
-		render_fill_rect(d->fishes[i].x, d->fishes[i].y, 6, 6, PAL_YELLOW);
-	}
+	for (i = 0; i < FISH_COUNT; i++)
+		if (!d->fish[i].taken)
+			render_sprite_stencil(&spr_fish, d->fish[i].x, d->fish[i].y, CGA_WHITE);
 
 	player_render(&d->cat);
-
-	render_text("COLLECT THE FISH!", 120, 185);
-	int remaining = 0;
-	for (int i = 0; i < 4; i++) if (!d->fishes[i].collected) remaining++;
-	render_number(remaining, 200, 4, 1);
+	room_draw_hud(ROOM_FISHBOWL, d->taken, FISH_COUNT,
+	              game_room_time_limit() - d->timer);
 }
 
-static void fishbowl_exit(struct scene *s) { free(s->data); }
+static void fishbowl_exit(struct scene *s)
+{
+	free(s->data);
+	s->data = NULL;
+}
+
+static void fishbowl_keydown(struct scene *s, SDL_Keycode key)
+{
+	(void)s;
+	if (key == SDLK_ESCAPE)
+		room_leave();
+}
 
 struct scene *fishbowl_create(void)
 {
 	struct scene *s = calloc(1, sizeof(*s));
-	s->enter  = fishbowl_enter;
-	s->update = fishbowl_update;
-	s->render = fishbowl_render;
-	s->exit   = fishbowl_exit;
+
+	if (!s)
+		return NULL;
+	s->enter   = fishbowl_enter;
+	s->update  = fishbowl_update;
+	s->render  = fishbowl_render;
+	s->exit    = fishbowl_exit;
+	s->keydown = fishbowl_keydown;
 	return s;
 }

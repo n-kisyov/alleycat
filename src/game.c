@@ -1,5 +1,6 @@
 #include "game.h"
 #include "scene.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -100,8 +101,7 @@ void game_flash(const char *msg)
 		g_state.flash_timer = 0;
 		return;
 	}
-	strncpy(g_state.flash, msg, FLASH_MAX - 1);
-	g_state.flash[FLASH_MAX - 1] = '\0';
+	snprintf(g_state.flash, sizeof(g_state.flash), "%s", msg);
 	g_state.flash_timer = SECONDS(2);
 }
 

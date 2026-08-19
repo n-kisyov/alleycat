@@ -90,6 +90,7 @@ int main(int argc, char **argv)
 					toggle_fullscreen();
 					break;
 				}
+				input_note_keydown(e.key.keysym.scancode);
 				scene_keydown(e.key.keysym.sym);
 				break;
 			case SDL_KEYUP:
