@@ -2,43 +2,63 @@
 #include <SDL.h>
 #include <string.h>
 
+static const struct {
+	SDL_Scancode sc;
+	uint8_t      bit;
+} key_map[] = {
+	{ SDL_SCANCODE_LEFT,   KEY_LEFT   }, { SDL_SCANCODE_A,     KEY_LEFT   },
+	{ SDL_SCANCODE_RIGHT,  KEY_RIGHT  }, { SDL_SCANCODE_D,     KEY_RIGHT  },
+	{ SDL_SCANCODE_UP,     KEY_UP     }, { SDL_SCANCODE_W,     KEY_UP     },
+	{ SDL_SCANCODE_DOWN,   KEY_DOWN   }, { SDL_SCANCODE_S,     KEY_DOWN   },
+	{ SDL_SCANCODE_SPACE,  KEY_ACTION }, { SDL_SCANCODE_LCTRL, KEY_ACTION },
+	{ SDL_SCANCODE_RCTRL,  KEY_ACTION },
+	{ SDL_SCANCODE_ESCAPE, KEY_ESCAPE },
+	{ SDL_SCANCODE_RETURN, KEY_RETURN }, { SDL_SCANCODE_KP_ENTER, KEY_RETURN }
+};
+
+#define KEY_MAP_LEN ((int)(sizeof(key_map) / sizeof(key_map[0])))
+
 static const uint8_t *keyboard_state;
 static uint8_t current_keys;
 static uint8_t previous_keys;
-static int key_states[SDL_NUM_SCANCODES];
-static int prev_key_states[SDL_NUM_SCANCODES];
+static uint8_t latched_keys;
 
 void input_init(void)
 {
 	keyboard_state = SDL_GetKeyboardState(NULL);
-	memset(key_states, 0, sizeof(key_states));
-	memset(prev_key_states, 0, sizeof(prev_key_states));
+	current_keys   = 0;
+	previous_keys  = 0;
+	latched_keys   = 0;
+}
+
+void input_note_keydown(int scancode)
+{
+	int i;
+
+	for (i = 0; i < KEY_MAP_LEN; i++)
+		if (key_map[i].sc == (SDL_Scancode)scancode)
+			latched_keys |= key_map[i].bit;
 }
 
 void input_update(void)
 {
-	memcpy(prev_key_states, key_states, sizeof(key_states));
-	for (int i = 0; i < SDL_NUM_SCANCODES; i++)
-		key_states[i] = keyboard_state[i] ? 1 : 0;
+	uint8_t keys = 0;
+	int i;
+
+	if (keyboard_state) {
+		for (i = 0; i < KEY_MAP_LEN; i++)
+			if (keyboard_state[key_map[i].sc])
+				keys |= key_map[i].bit;
+	}
+
+	/* A tap shorter than one logic tick is over before the keyboard state is
+	 * next sampled, so keydown events latch a bit that survives to here.
+	 * Without this a quick press is simply lost. */
+	keys |= latched_keys;
+	latched_keys = 0;
 
 	previous_keys = current_keys;
-	current_keys = 0;
-
-	if (keyboard_state[SDL_SCANCODE_LEFT] || keyboard_state[SDL_SCANCODE_A])
-		current_keys |= KEY_LEFT;
-	if (keyboard_state[SDL_SCANCODE_RIGHT] || keyboard_state[SDL_SCANCODE_D])
-		current_keys |= KEY_RIGHT;
-	if (keyboard_state[SDL_SCANCODE_UP] || keyboard_state[SDL_SCANCODE_W])
-		current_keys |= KEY_UP;
-	if (keyboard_state[SDL_SCANCODE_DOWN] || keyboard_state[SDL_SCANCODE_S])
-		current_keys |= KEY_DOWN;
-	if (keyboard_state[SDL_SCANCODE_SPACE] || keyboard_state[SDL_SCANCODE_LCTRL] ||
-	    keyboard_state[SDL_SCANCODE_RCTRL])
-		current_keys |= KEY_ACTION;
-	if (keyboard_state[SDL_SCANCODE_ESCAPE])
-		current_keys |= KEY_ESCAPE;
-	if (keyboard_state[SDL_SCANCODE_RETURN])
-		current_keys |= KEY_RETURN;
+	current_keys  = keys;
 }
 
 uint8_t input_get(void)
@@ -53,5 +73,11 @@ int input_key_pressed(int key)
 
 int input_key_just_pressed(int key)
 {
-	return ((current_keys & key) != 0) && ((previous_keys & key) == 0);
+	return (current_keys & key) != 0 && (previous_keys & key) == 0;
+}
+
+void input_clear_edges(void)
+{
+	previous_keys = current_keys;
+	latched_keys  = 0;
 }
