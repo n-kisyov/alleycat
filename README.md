@@ -67,11 +67,14 @@ counts:
   `SDL_SetColorKey(cat->surface, SDL_SRCCOLORKEY, white)` in its `cat.c`.
   Static art is copied opaquely instead, and a third mode ANDs a sprite into
   the framebuffer the way `alleycat_draw_overlay` does.
-- The intro tune is **one byte per BIOS timer tick**, where the byte is twice
-  the index into `tones[]`, and those entries are frequencies in hertz
-  (`tones[1]` is 384 Hz, `tones[13]` is 768 Hz — an octave apart over twelve
-  steps). `1193180 / tones[i]` gives the PIT divisor, which is only meaningful
-  in front of a real PC speaker.
+- The intro tune is **one byte per BIOS timer tick** (18.2 Hz), where the byte
+  is twice the index into `tones[]`. Those entries are **PIT divisors**, so the
+  sounding pitch is `1193180 / tones[i]` and the table runs high to low as the
+  index rises. The reference settles it: `alleycat.c` pushes
+  `1193180 / tones[i]` into `PCS_Push(short freq)`, that value reaches
+  `SPK_Sound()`, and `speaker.c` turns it into a phase increment with
+  `osc.k = (freq << 16) / audiospec.freq`. Decoded this way the opening phrase
+  is C4 C4 B3 B3 A3 B3 A3 G3, spanning 194 Hz to 3107 Hz.
 
 *Alley Cat* is a trademark of its respective owners. This is a fan
 reimplementation, not affiliated with IBM or the original authors.

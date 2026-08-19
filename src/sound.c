@@ -13,12 +13,18 @@
 #define AMPLITUDE   6500
 
 /*
- * Note frequencies in hertz, straight from the game.  tones[1] is 384 Hz and
- * tones[13] is 768 Hz -- exactly an octave over twelve entries, which is what
- * identifies these as frequencies rather than the PIT divisors they would be
- * on real hardware.  A divisor is 1193180 / tones[i], and it belongs only in
- * front of an actual timer chip.
+ * Note table from the game.  These are PIT divisors, not frequencies: the
+ * sounding pitch is PIT_HZ / tones[i], so the table runs from high to low as
+ * the index rises.  The reference confirms it -- alleycat.c pushes
+ * 1193180 / tones[i] into PCS_Push(short freq), and that value reaches
+ * SPK_Sound(), where speaker.c turns it into a phase increment with
+ * osc.k = (freq << 16) / audiospec.freq.  So what is pushed is hertz, and
+ * what is stored here is the divisor.
+ *
+ * The table is geometric either way -- tones[13] is exactly twice tones[1] --
+ * so the doubling alone does not say which it is; the consumer does.
  */
+#define PIT_HZ 1193180
 static const uint16_t tones[] = {
 	0, 0x180, 0x197, 0x1AF, 0x1C9, 0x1E4, 0x201, 0x21F,
 	0x23F, 0x262, 0x286, 0x2AC, 0x2D5, 0x300, 0x32E, 0x35E,
@@ -33,7 +39,7 @@ static const uint16_t tones[] = {
 /*
  * The tune is one byte per BIOS timer tick, and the byte is twice the index
  * into tones[] -- not a (note, duration) pair, which is why the old decoder
- * dropped everything above 0x33 and played the rests as notes.
+ * dropped every byte above 0x66 and read the notes in between as durations.
  */
 static const unsigned char intro_music[] = {
 	0x58, 0x00, 0x00, 0x00, 0x00, 0x00, 0x58, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -169,7 +175,9 @@ static void audio_callback(void *userdata, Uint8 *stream, int len)
 				}
 				if (music_playing) {
 					int idx = intro_music[music_pos++] / 2;
-					music_freq = (idx < TONE_COUNT) ? tones[idx] : 0;
+					int div = (idx < TONE_COUNT) ? tones[idx] : 0;
+					/* tones[0] is 0 and means a rest. */
+					music_freq = div ? PIT_HZ / div : 0;
 					music_tick_left = MUSIC_TICK_SAMPLES;
 				}
 			}
