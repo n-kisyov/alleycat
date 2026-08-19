@@ -4,189 +4,264 @@
 #include <string.h>
 #include <stdlib.h>
 
-const uint32_t cga_colors[16] = {
+/* The full CGA hardware palette.  Only the four entries named by cga_pal_1
+ * are ever reachable on screen, but the AND blit can land on other indices
+ * (11 & 13 == 9, for instance), exactly as it does on real hardware, so the
+ * whole table has to be present. */
+static const uint32_t cga_colors[16] = {
 	0xFF000000, 0xFF0000AA, 0xFF00AA00, 0xFF00AAAA,
 	0xFFAA0000, 0xFFAA00AA, 0xFFAA5500, 0xFFAAAAAA,
 	0xFF555555, 0xFF5555FF, 0xFF55FF55, 0xFF55FFFF,
 	0xFFFF5555, 0xFFFF55FF, 0xFFFFFF55, 0xFFFFFFFF
 };
 
-static const int cga_pal_1[4] = { 0, 11, 13, 15 };
+/* Mode 4 palette 1, high intensity: black, light cyan, light magenta, white. */
+static const uint8_t cga_pal_1[4] = {
+	CGA_BLACK, CGA_CYAN, CGA_MAGENTA, CGA_WHITE
+};
+
+#define KEY_INDEX 3   /* white -- the colour key for the cat and the items */
 
 static SDL_Renderer *sdl_ren;
-static SDL_Surface *surf;
-static int sw, sh;
+static SDL_Texture  *tex;
+static uint8_t      *fb;       /* sw * sh colour indices */
+static uint32_t     *pixels;   /* scratch for the texture upload */
+static int           sw, sh;
 
-void render_init(int w, int h)
+int rect_overlap(struct rect a, struct rect b)
+{
+	return a.x < b.x + b.w && b.x < a.x + a.w &&
+	       a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+int render_init(int w, int h)
 {
 	sw = w;
 	sh = h;
+
+	/* Nearest-neighbour, set before the renderer exists or it is ignored. */
+	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
 
 	sdl_ren = SDL_CreateRenderer(g_state.window, -1,
 		SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 	if (!sdl_ren)
 		sdl_ren = SDL_CreateRenderer(g_state.window, -1, SDL_RENDERER_SOFTWARE);
-	if (sdl_ren)
-		SDL_RenderSetLogicalSize(sdl_ren, w, h);
+	if (!sdl_ren)
+		return 0;
 
-	surf = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32,
-		SDL_PIXELFORMAT_ARGB8888);
-	if (!surf)
-		surf = SDL_CreateRGBSurface(0, w, h, 32,
-			0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000);
+	SDL_RenderSetLogicalSize(sdl_ren, w, h);
+	SDL_RenderSetIntegerScale(sdl_ren, SDL_TRUE);
+
+	tex = SDL_CreateTexture(sdl_ren, SDL_PIXELFORMAT_ARGB8888,
+	                        SDL_TEXTUREACCESS_STREAMING, w, h);
+	if (!tex)
+		return 0;
+
+	fb     = calloc((size_t)w * h, 1);
+	pixels = calloc((size_t)w * h, sizeof(*pixels));
+	return fb != NULL && pixels != NULL;
+}
+
+void render_shutdown(void)
+{
+	free(pixels);
+	pixels = NULL;
+	free(fb);
+	fb = NULL;
+	if (tex) {
+		SDL_DestroyTexture(tex);
+		tex = NULL;
+	}
+	if (sdl_ren) {
+		SDL_DestroyRenderer(sdl_ren);
+		sdl_ren = NULL;
+	}
 }
 
 void render_present(void)
 {
-	if (!sdl_ren || !surf) return;
-	SDL_Texture *tex = SDL_CreateTextureFromSurface(sdl_ren, surf);
-	if (tex) {
-		SDL_SetRenderDrawColor(sdl_ren, 0, 0, 0, 255);
-		SDL_RenderClear(sdl_ren);
-		SDL_RenderCopy(sdl_ren, tex, NULL, NULL);
-		SDL_DestroyTexture(tex);
-	}
+	int i, n = sw * sh;
+
+	if (!sdl_ren || !tex || !fb || !pixels)
+		return;
+
+	for (i = 0; i < n; i++)
+		pixels[i] = cga_colors[fb[i] & 15];
+
+	SDL_UpdateTexture(tex, NULL, pixels, sw * (int)sizeof(*pixels));
+	SDL_SetRenderDrawColor(sdl_ren, 0, 0, 0, 255);
+	SDL_RenderClear(sdl_ren);
+	SDL_RenderCopy(sdl_ren, tex, NULL, NULL);
 	SDL_RenderPresent(sdl_ren);
 }
 
-static void put32(int x, int y, uint32_t c)
+/* ---- primitives -------------------------------------------------------- */
+
+void render_fill(uint8_t color)
 {
-	if (!surf || (unsigned)x >= (unsigned)sw || (unsigned)y >= (unsigned)sh)
+	if (fb)
+		memset(fb, color, (size_t)sw * sh);
+}
+
+void render_fill_rect(int x, int y, int w, int h, uint8_t color)
+{
+	int row;
+
+	if (!fb)
 		return;
-	uint32_t *p = (uint32_t *)((uint8_t *)surf->pixels + y * surf->pitch);
-	p[x] = c;
-}
-
-void render_fill(uint8_t ci)
-{
-	if (!surf) return;
-	uint32_t c = cga_colors[ci & 15];
-	uint8_t *row = (uint8_t *)surf->pixels;
-	for (int y = 0; y < sh; y++) {
-		uint32_t *p = (uint32_t *)row;
-		for (int x = 0; x < sw; x++) p[x] = c;
-		row += surf->pitch;
-	}
-}
-
-void render_fill_rect(int x, int y, int w, int h, uint8_t ci)
-{
-	if (!surf) return;
 	if (x < 0) { w += x; x = 0; }
 	if (y < 0) { h += y; y = 0; }
 	if (x + w > sw) w = sw - x;
 	if (y + h > sh) h = sh - y;
-	if (w <= 0 || h <= 0) return;
-	uint32_t c = cga_colors[ci & 15];
-	for (int row = 0; row < h; row++)
-		for (int col = 0; col < w; col++)
-			put32(x + col, y + row, c);
-}
+	if (w <= 0 || h <= 0)
+		return;
 
-void render_sprite(const uint8_t *data, int x, int y, int w, int h)
-{
-	if (!surf || !data) return;
-	int bytes_per_row = (w + 3) / 4;
-
-	for (int row = 0; row < h; row++) {
-		int dy = y + row;
-		if (dy < 0 || dy >= sh) { data += bytes_per_row; continue; }
-		int drawn = 0;
-		for (int b = 0; b < bytes_per_row; b++) {
-			uint8_t byte = *data++;
-			int n = w - drawn;
-			if (n > 4) n = 4;
-			for (int p = 0; p < n; p++) {
-				int dx = x + drawn + p;
-				if ((unsigned)dx >= (unsigned)sw) continue;
-				uint8_t px = (byte >> (6 - p * 2)) & 3;
-				if (px == 0) continue;
-				put32(dx, dy, cga_colors[cga_pal_1[px]]);
-			}
-			drawn += n;
-		}
-	}
-}
-
-void render_sprite_clipped(const uint8_t *data, int x, int y, int w, int h,
-                           int cx, int cy, int cw, int ch)
-{
-	if (!surf || !data) return;
-	int bytes_per_row = (w + 3) / 4;
-	for (int row = 0; row < h; row++) {
-		int dy = y + row;
-		if (dy < cy || dy >= cy + ch) { data += bytes_per_row; continue; }
-		int drawn = 0;
-		for (int b = 0; b < bytes_per_row; b++) {
-			uint8_t byte = *data++;
-			int n = w - drawn;
-			if (n > 4) n = 4;
-			for (int p = 0; p < n; p++) {
-				int dx = x + drawn + p;
-				if (dx < cx || dx >= cx + cw || (unsigned)dx >= (unsigned)sw) continue;
-				uint8_t px = (byte >> (6 - p * 2)) & 3;
-				if (px == 0) continue;
-				put32(dx, dy, cga_colors[cga_pal_1[px]]);
-			}
-			drawn += n;
-		}
-	}
-}
-
-void render_char(char c, int x, int y)
-{
-	if (c >= 'A' && c <= 'Z')       render_sprite(sprite_letters[c - 'A'], x, y, 8, 8);
-	else if (c >= '0' && c <= '9')  render_sprite(sprite_digits[c - '0'], x, y, 8, 8);
-	else if (c >= 'a' && c <= 'z')  render_sprite(sprite_letters[c - 'a'], x, y, 8, 8);
-	else if (c == '!')              render_sprite(sprite_punctuation[0], x, y, 8, 8);
-	else if (c == '-')              render_sprite(sprite_punctuation[1], x, y, 8, 8);
-	else if (c == '.')              render_sprite(sprite_punctuation[2], x, y, 8, 8);
-}
-
-void render_text(const char *text, int x, int y)
-{
-	if (!text) return;
-	while (*text) {
-		render_char(*text, x, y);
-		if (*text >= '0' && *text <= '9') x += 6;
-		else if (*text == ' ') x += 4;
-		else x += 6;
-		text++;
-	}
-}
-
-void render_number(int num, int x, int y, int digits)
-{
-	char buf[16];
-	for (int i = digits - 1; i >= 0; i--) {
-		buf[i] = '0' + (num % 10);
-		num /= 10;
-	}
-	buf[digits] = 0;
-	render_text(buf, x, y);
+	for (row = 0; row < h; row++)
+		memset(fb + (size_t)(y + row) * sw + x, color, (size_t)w);
 }
 
 void render_line(int x1, int y1, int x2, int y2, uint8_t color)
 {
-	if (!surf) return;
-	uint32_t c = cga_colors[color & 15];
-	int dx = abs(x2 - x1), sx = x1 < x2 ? 1 : -1;
+	int dx =  abs(x2 - x1), sx = x1 < x2 ? 1 : -1;
 	int dy = -abs(y2 - y1), sy = y1 < y2 ? 1 : -1;
 	int err = dx + dy;
-	while (1) {
+
+	if (!fb)
+		return;
+
+	for (;;) {
 		if ((unsigned)x1 < (unsigned)sw && (unsigned)y1 < (unsigned)sh)
-			put32(x1, y1, c);
-		if (x1 == x2 && y1 == y2) break;
-		int e2 = 2 * err;
-		if (e2 >= dy) { err += dy; x1 += sx; }
-		if (e2 <= dx) { err += dx; y1 += sy; }
+			fb[(size_t)y1 * sw + x1] = color;
+		if (x1 == x2 && y1 == y2)
+			break;
+		{
+			int e2 = 2 * err;
+			if (e2 >= dy) { err += dy; x1 += sx; }
+			if (e2 <= dx) { err += dx; y1 += sy; }
+		}
 	}
 }
 
 void render_rect(int x, int y, int w, int h, uint8_t color)
 {
+	if (w <= 0 || h <= 0)
+		return;
 	render_line(x, y, x + w - 1, y, color);
 	render_line(x, y + h - 1, x + w - 1, y + h - 1, color);
 	render_line(x, y, x, y + h - 1, color);
 	render_line(x + w - 1, y, x + w - 1, y + h - 1, color);
+}
+
+/* ---- sprite blits ------------------------------------------------------ */
+
+/* mode: 0 opaque, 1 keyed on white, 2 AND into the destination. */
+static void blit(const struct sprite *s, int x, int y, int mode)
+{
+	int bytes_per_row, row;
+	const uint8_t *data;
+
+	if (!fb || !s || !s->data)
+		return;
+
+	bytes_per_row = (s->w + 3) / 4;
+	data = s->data;
+
+	for (row = 0; row < s->h; row++, data += bytes_per_row) {
+		int dy = y + row;
+		int col;
+
+		if (dy < 0 || dy >= sh)
+			continue;
+
+		for (col = 0; col < s->w; col++) {
+			int dx = x + col;
+			uint8_t px, c;
+
+			if ((unsigned)dx >= (unsigned)sw)
+				continue;
+
+			px = (data[col >> 2] >> (6 - (col & 3) * 2)) & 3;
+			if (mode == 1 && px == KEY_INDEX)
+				continue;
+
+			c = cga_pal_1[px];
+			if (mode == 2)
+				fb[(size_t)dy * sw + dx] &= c;
+			else
+				fb[(size_t)dy * sw + dx] = c;
+		}
+	}
+}
+
+void render_sprite(const struct sprite *s, int x, int y)       { blit(s, x, y, 0); }
+void render_sprite_keyed(const struct sprite *s, int x, int y) { blit(s, x, y, 1); }
+void render_sprite_and(const struct sprite *s, int x, int y)   { blit(s, x, y, 2); }
+
+/* ---- text -------------------------------------------------------------- */
+
+/* Glyphs are 8 pixels wide and the original steps 8 pixels between them. */
+static const struct sprite *glyph(char c)
+{
+	if (c >= 'A' && c <= 'Z') return &spr_letters[c - 'A'];
+	if (c >= 'a' && c <= 'z') return &spr_letters[c - 'a'];
+	if (c >= '0' && c <= '9') return &spr_digits[c - '0'];
+	if (c == '!')             return &spr_punctuation[0];
+	if (c == '-')             return &spr_punctuation[1];
+	if (c == '.')             return &spr_punctuation[2];
+	return NULL;
+}
+
+static void draw_text(const char *text, int x, int y, int keyed)
+{
+	if (!text)
+		return;
+	for (; *text; text++, x += GLYPH_W) {
+		const struct sprite *g = glyph(*text);
+		if (!g)
+			continue;
+		if (keyed)
+			render_sprite_keyed(g, x, y);
+		else
+			render_sprite(g, x, y);
+	}
+}
+
+void render_text(const char *text, int x, int y)       { draw_text(text, x, y, 0); }
+void render_text_keyed(const char *text, int x, int y) { draw_text(text, x, y, 1); }
+
+int render_text_width(const char *text)
+{
+	return text ? (int)strlen(text) * GLYPH_W : 0;
+}
+
+void render_text_centered(const char *text, int y)
+{
+	render_text(text, (sw - render_text_width(text)) / 2, y);
+}
+
+void render_number(int num, int x, int y, int digits)
+{
+	char buf[16];
+	int i, limit;
+
+	if (digits < 1)
+		digits = 1;
+	if (digits > (int)sizeof(buf) - 1)
+		digits = (int)sizeof(buf) - 1;
+
+	/* Clamp rather than emit characters outside '0'..'9', which the glyph
+	 * lookup would silently drop and leave the field blank. */
+	if (num < 0)
+		num = 0;
+	for (i = 0, limit = 1; i < digits && limit <= 100000000; i++)
+		limit *= 10;
+	if (num > limit - 1)
+		num = limit - 1;
+
+	for (i = digits - 1; i >= 0; i--) {
+		buf[i] = (char)('0' + num % 10);
+		num /= 10;
+	}
+	buf[digits] = '\0';
+	render_text(buf, x, y);
 }

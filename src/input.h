@@ -11,10 +11,14 @@
 #define KEY_ESCAPE 0x20
 #define KEY_RETURN 0x40
 
-void input_init(void);
-void input_update(void);
+void    input_init(void);
+void    input_update(void);
 uint8_t input_get(void);
-int input_key_pressed(int key);
-int input_key_just_pressed(int key);
+int     input_key_pressed(int key);
+int     input_key_just_pressed(int key);
+
+/* Swallow the current press edges.  Called on a scene change so the key that
+ * started the game does not also make the cat jump on arrival. */
+void    input_clear_edges(void);
 
 #endif

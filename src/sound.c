@@ -1,28 +1,25 @@
 #include "sound.h"
 #include <SDL.h>
-#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
+/*
+ * The original drives the PC speaker: one square-wave voice, no mixing.  This
+ * keeps that shape -- a sound effect takes the speaker while it plays and the
+ * music keeps its own clock running underneath.
+ */
+
 #define SAMPLE_RATE 44100
-#define AMPLITUDE 28000
+#define AMPLITUDE   6500
 
-static SDL_AudioDeviceID audio_device;
-static int audio_initialized = 0;
-
-typedef struct {
-	int frequency;
-	int duration_samples;
-	int samples_played;
-	int active;
-} tone_t;
-
-static tone_t current_tone;
-static tone_t pending_tones[256];
-static int pending_count = 0;
-static int pending_index = 0;
-
-static uint16_t tones[] = {
+/*
+ * Note frequencies in hertz, straight from the game.  tones[1] is 384 Hz and
+ * tones[13] is 768 Hz -- exactly an octave over twelve entries, which is what
+ * identifies these as frequencies rather than the PIT divisors they would be
+ * on real hardware.  A divisor is 1193180 / tones[i], and it belongs only in
+ * front of an actual timer chip.
+ */
+static const uint16_t tones[] = {
 	0, 0x180, 0x197, 0x1AF, 0x1C9, 0x1E4, 0x201, 0x21F,
 	0x23F, 0x262, 0x286, 0x2AC, 0x2D5, 0x300, 0x32E, 0x35E,
 	0x391, 0x3C8, 0x401, 0x43E, 0x47F, 0x4C3, 0x50C, 0x558,
@@ -31,8 +28,14 @@ static uint16_t tones[] = {
 	0x0E46, 0x0F1F, 0x1005, 0x10F9, 0x11FB, 0x130D, 0x142F, 0x1562,
 	0x16A8, 0x1801, 0x196E, 0x1AF1
 };
+#define TONE_COUNT ((int)(sizeof(tones) / sizeof(tones[0])))
 
-static unsigned char intro_music[] = {
+/*
+ * The tune is one byte per BIOS timer tick, and the byte is twice the index
+ * into tones[] -- not a (note, duration) pair, which is why the old decoder
+ * dropped everything above 0x33 and played the rests as notes.
+ */
+static const unsigned char intro_music[] = {
 	0x58, 0x00, 0x00, 0x00, 0x00, 0x00, 0x58, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x5a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5a, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x5e, 0x00, 0x00, 0x00, 0x5a, 0x00, 0x5e, 0x00, 0x00, 0x00, 0x62, 0x00,
@@ -105,61 +108,119 @@ static unsigned char intro_music[] = {
 	0x02, 0x04, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x62, 0x00
 };
-static size_t intro_music_size = sizeof(intro_music);
+#define MUSIC_SIZE ((int)sizeof(intro_music))
+
+/* BIOS ticks run at 18.2 Hz; one byte of the tune is consumed per tick. */
+#define MUSIC_TICK_SAMPLES ((int)(SAMPLE_RATE / 18.2))
+
+#define SFX_QUEUE 32
+
+typedef struct {
+	int freq;
+	int samples;
+} tone_t;
+
+static SDL_AudioDeviceID audio_device;
+static int audio_initialized;
+
+static tone_t   sfx_queue[SFX_QUEUE];
+static int      sfx_head, sfx_count;
+static tone_t   sfx_current;
+
+static int      music_playing;
+static int      music_loop;
+static int      music_pos;
+static int      music_tick_left;
+static int      music_freq;
+
+static uint32_t phase;
+static uint32_t phase_inc;
+static int      phase_freq;
+
+static void set_freq(int freq)
+{
+	if (freq == phase_freq)
+		return;
+	phase_freq = freq;
+	phase_inc = freq > 0
+		? (uint32_t)((double)freq * 4294967296.0 / SAMPLE_RATE)
+		: 0;
+}
 
 static void audio_callback(void *userdata, Uint8 *stream, int len)
 {
 	Sint16 *buf = (Sint16 *)stream;
-	int sample_count = len / sizeof(Sint16);
-	static double phase = 0.0;
+	int count = len / (int)sizeof(Sint16);
+	int i;
+
 	(void)userdata;
 
-	for (int i = 0; i < sample_count; i++) {
-		Sint16 sample = 0;
+	for (i = 0; i < count; i++) {
+		int freq = 0;
 
-		if (current_tone.active && current_tone.frequency > 0) {
-			sample = (Sint16)(AMPLITUDE * sin(phase * 2.0 * 3.1415926535));
-			phase += (double)current_tone.frequency / SAMPLE_RATE;
-			if (phase >= 1.0) phase -= 2.0;
-
-			current_tone.samples_played++;
-			if (current_tone.samples_played >= current_tone.duration_samples) {
-				current_tone.active = 0;
-				phase = 0.0;
+		/* Advance the tune, whether or not it is the voice being heard. */
+		if (music_playing) {
+			if (music_tick_left == 0) {
+				if (music_pos >= MUSIC_SIZE) {
+					if (music_loop)
+						music_pos = 0;
+					else
+						music_playing = 0;
+				}
+				if (music_playing) {
+					int idx = intro_music[music_pos++] / 2;
+					music_freq = (idx < TONE_COUNT) ? tones[idx] : 0;
+					music_tick_left = MUSIC_TICK_SAMPLES;
+				}
 			}
+			if (music_tick_left > 0)
+				music_tick_left--;
 		}
 
-		if (!current_tone.active && pending_count > 0) {
-			current_tone = pending_tones[pending_index];
-			pending_index = (pending_index + 1) % 256;
-			pending_count--;
-			current_tone.active = 1;
-			phase = 0.0;
+		if (sfx_current.samples <= 0 && sfx_count > 0) {
+			sfx_current = sfx_queue[sfx_head];
+			sfx_head = (sfx_head + 1) % SFX_QUEUE;
+			sfx_count--;
 		}
 
-		*buf++ = sample;
+		if (sfx_current.samples > 0) {
+			freq = sfx_current.freq;
+			sfx_current.samples--;
+		} else if (music_playing) {
+			freq = music_freq;
+		}
+
+		set_freq(freq);
+		if (phase_inc) {
+			phase += phase_inc;
+			buf[i] = (phase & 0x80000000u) ? AMPLITUDE : -AMPLITUDE;
+		} else {
+			phase = 0;
+			buf[i] = 0;
+		}
 	}
 }
 
 void sound_init(void)
 {
 	SDL_AudioSpec desired, obtained;
+
 	SDL_zero(desired);
-	desired.freq = SAMPLE_RATE;
-	desired.format = AUDIO_S16SYS;
+	desired.freq     = SAMPLE_RATE;
+	desired.format   = AUDIO_S16SYS;
 	desired.channels = 1;
-	desired.samples = 4096;
+	desired.samples  = 1024;
 	desired.callback = audio_callback;
-	desired.userdata = NULL;
+
+	memset(&sfx_current, 0, sizeof(sfx_current));
+	sfx_head = sfx_count = 0;
+	music_playing = 0;
 
 	audio_device = SDL_OpenAudioDevice(NULL, 0, &desired, &obtained, 0);
 	if (audio_device != 0) {
 		audio_initialized = 1;
 		SDL_PauseAudioDevice(audio_device, 0);
 	}
-	memset(&current_tone, 0, sizeof(current_tone));
-	pending_count = 0;
-	pending_index = 0;
 }
 
 void sound_close(void)
@@ -172,56 +233,59 @@ void sound_close(void)
 
 void sound_play_tone(int frequency, int duration_ms)
 {
-	if (!audio_initialized) return;
 	tone_t t;
-	t.frequency = frequency;
-	t.duration_samples = (duration_ms * SAMPLE_RATE) / 1000;
-	t.samples_played = 0;
-	t.active = 0;
+
+	if (!audio_initialized || frequency <= 0 || duration_ms <= 0)
+		return;
+
+	t.freq    = frequency;
+	t.samples = duration_ms * SAMPLE_RATE / 1000;
 
 	SDL_LockAudioDevice(audio_device);
-	pending_tones[(pending_index + pending_count) % 256] = t;
-	pending_count++;
+	/* Drop the request rather than let the ring wrap past itself, which is
+	 * how the queue used to desynchronise and replay stale tones. */
+	if (sfx_count < SFX_QUEUE) {
+		sfx_queue[(sfx_head + sfx_count) % SFX_QUEUE] = t;
+		sfx_count++;
+	}
+	SDL_UnlockAudioDevice(audio_device);
+}
+
+void sound_play_intro_music(void)
+{
+	if (!audio_initialized)
+		return;
+
+	SDL_LockAudioDevice(audio_device);
+	music_pos       = 0;
+	music_tick_left = 0;
+	music_freq      = 0;
+	music_loop      = 1;
+	music_playing   = 1;
+	SDL_UnlockAudioDevice(audio_device);
+}
+
+void sound_stop_music(void)
+{
+	if (!audio_initialized)
+		return;
+
+	SDL_LockAudioDevice(audio_device);
+	music_playing = 0;
+	music_freq    = 0;
 	SDL_UnlockAudioDevice(audio_device);
 }
 
 void sound_stop(void)
 {
+	if (!audio_initialized)
+		return;
+
 	SDL_LockAudioDevice(audio_device);
-	current_tone.active = 0;
-	pending_count = 0;
-	SDL_UnlockAudioDevice(audio_device);
-}
-
-void sound_update(void)
-{
-}
-
-void sound_play_intro_music(void)
-{
-	if (!audio_initialized) return;
-	SDL_LockAudioDevice(audio_device);
-	pending_count = 0;
-	current_tone.active = 0;
-
-	for (size_t i = 0; i < intro_music_size; i += 2) {
-		uint8_t idx = intro_music[i];
-		uint8_t dur = intro_music[i + 1];
-		if (idx == 0) {
-			pending_tones[(pending_index + pending_count) % 256].frequency = 0;
-			pending_tones[(pending_index + pending_count) % 256].duration_samples = dur * 50 * SAMPLE_RATE / 1000;
-			pending_tones[(pending_index + pending_count) % 256].active = 0;
-			pending_count++;
-		} else if (idx < 52) {
-			uint16_t freq = tones[idx];
-			if (freq > 0) {
-				freq = 1193180 / freq;
-			}
-			pending_tones[(pending_index + pending_count) % 256].frequency = (int)freq;
-			pending_tones[(pending_index + pending_count) % 256].duration_samples = dur * 50 * SAMPLE_RATE / 1000;
-			pending_tones[(pending_index + pending_count) % 256].active = 0;
-			pending_count++;
-		}
-	}
+	music_playing = 0;
+	music_freq    = 0;
+	sfx_count     = 0;
+	sfx_head      = 0;
+	memset(&sfx_current, 0, sizeof(sfx_current));
 	SDL_UnlockAudioDevice(audio_device);
 }
