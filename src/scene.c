@@ -17,8 +17,6 @@ static void do_push(struct scene *s)
 		return;
 	if (scene_stack_top >= MAX_SCENE_STACK - 1) {
 		/* Nothing sane to do with it, and leaking would be worse. */
-		if (s->exit)
-			s->exit(s);
 		free(s);
 		return;
 	}
@@ -44,8 +42,6 @@ static void request(enum transition kind, struct scene *s)
 	if (pending_kind != TRANS_NONE) {
 		/* Already committed this frame; drop the loser so it does not leak. */
 		if (s) {
-			if (s->exit)
-				s->exit(s);
 			free(s);
 		}
 		return;

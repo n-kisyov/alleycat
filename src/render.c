@@ -54,12 +54,18 @@ int render_init(int w, int h)
 
 	tex = SDL_CreateTexture(sdl_ren, SDL_PIXELFORMAT_ARGB8888,
 	                        SDL_TEXTUREACCESS_STREAMING, w, h);
-	if (!tex)
+	if (!tex) {
+		render_shutdown();
 		return 0;
+	}
 
 	fb     = calloc((size_t)w * h, 1);
 	pixels = calloc((size_t)w * h, sizeof(*pixels));
-	return fb != NULL && pixels != NULL;
+	if (!fb || !pixels) {
+		render_shutdown();
+		return 0;
+	}
+	return 1;
 }
 
 void render_shutdown(void)
@@ -258,14 +264,14 @@ void render_number(int num, int x, int y, int digits)
 
 	if (digits < 1)
 		digits = 1;
-	if (digits > (int)sizeof(buf) - 1)
-		digits = (int)sizeof(buf) - 1;
+	if (digits > 9)
+		digits = 9;
 
 	/* Clamp rather than emit characters outside '0'..'9', which the glyph
 	 * lookup would silently drop and leave the field blank. */
 	if (num < 0)
 		num = 0;
-	for (i = 0, limit = 1; i < digits && limit <= 100000000; i++)
+	for (i = 0, limit = 1; i < digits; i++)
 		limit *= 10;
 	if (num > limit - 1)
 		num = limit - 1;

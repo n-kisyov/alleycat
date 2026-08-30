@@ -35,7 +35,10 @@
 #define HUD_Y        (SCREEN_H - 16)
 #define TRASHCAN_H   (12 + 8 + 11)
 
-#define OTHER_CATS 3
+#define OTHER_CATS         3
+#define OTHER_CAT_MIN_X    8
+#define OTHER_CAT_MAX_X    (SCREEN_W - 32)
+#define OTHER_CAT_TURN_PCT 1
 
 typedef struct {
 	int x, y, w, h;
@@ -179,9 +182,9 @@ static void alley_update(struct scene *s)
 
 	for (i = 0; i < OTHER_CATS; i++) {
 		d->other_cat_x[i] += d->other_cat_dir[i];
-		if (d->other_cat_x[i] < 8 || d->other_cat_x[i] > SCREEN_W - 32)
+		if (d->other_cat_x[i] < OTHER_CAT_MIN_X || d->other_cat_x[i] > OTHER_CAT_MAX_X)
 			d->other_cat_dir[i] = -d->other_cat_dir[i];
-		else if (rand() % 200 < 2)
+		else if (rand() % 100 < OTHER_CAT_TURN_PCT)
 			d->other_cat_dir[i] = -d->other_cat_dir[i];
 	}
 }

@@ -108,7 +108,7 @@ void player_update(struct player *p, int ground_y)
 				p->falling = 1;
 			}
 		}
-		if (p->y >= ground_y)
+		if (p->vy >= 0 && p->y >= ground_y)
 			player_land(p, ground_y);
 	}
 
